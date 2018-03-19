@@ -6,7 +6,9 @@
     "quotemark": false,
     "semicolon": false,
     "trailing-comma": false,
-    "interface-name": false
+    "interface-name": false,
+    "object-literal-sort-keys": false,
+    "arrow-parens": false
   },
   "rulesDirectory": []
 }

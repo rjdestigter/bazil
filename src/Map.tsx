@@ -4,12 +4,6 @@ import 'leaflet/dist/leaflet.css'
 import * as React from 'react'
 import { GeoJSON, Map, TileLayer } from 'react-leaflet'
 import Bazil from './Bazil'
-import leerbroek from './leerbroek.json'
-
-declare module './leerbroek.json' {
-  const value: any
-  export default value
-}
 
 const osmUrl = 'http://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png'
 
@@ -28,9 +22,10 @@ export default class Blip extends React.Component<any> {
         center={[0, 0]}
         zoom={1}
         ref={this.onRef}
+        worldCopyJump
+        maxZoom={24}
       >
-        <TileLayer url={osmUrl} />
-        <GeoJSON data={leerbroek} />
+        <TileLayer url={osmUrl} maxNativeZoom={18} maxZoom={24} />
         <Bazil />
       </Map>
     )

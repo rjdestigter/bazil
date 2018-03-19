@@ -2,6 +2,8 @@ import { Map } from 'leaflet'
 import * as PropTypes from 'prop-types'
 import * as React from 'react'
 import basil from './basil'
+import leerbroek from './leerbroek.json'
+import purlieu from './redux/Purlieu'
 
 interface State {
   size: {
@@ -26,12 +28,14 @@ export default class Bazil extends React.Component<any, State> {
     map: PropTypes.instanceOf(Map),
   }
 
+  private map: Map
+
   constructor(props: any, context: Context) {
     super(props)
 
     this.state = this.getStateFromMapSize(context)
-
     this.onRef = this.onRef.bind(this)
+    this.map = context.map
   }
 
   public render() {
@@ -50,7 +54,24 @@ export default class Bazil extends React.Component<any, State> {
       const ctx = node.getContext('2d')
 
       if (ctx) {
-        basil([this.state.size.width, this.state.size.height], node, ctx)
+        const toLngLat = ([x, y]: number[]): number[] => {
+          const point = this.map.containerPointToLatLng([x, y])
+          return [point.lng, point.lat]
+        }
+
+        const fromLngLat = ([lng, lat]: number[]): number[] => {
+          const point = this.map.latLngToContainerPoint([lat, lng])
+          return [point.x, point.y]
+        }
+
+        const p = purlieu({
+          canvas: node,
+          toLngLat,
+          fromLngLat,
+          data: [leerbroek],
+        })
+
+        this.map.on('move zoom', p.init
       }
     }
   }

@@ -1,7 +1,54 @@
+import { MultiPolygon, Polygon } from '@turf/helpers'
+import { geomEach, coordAll } from '@turf/meta'
 import kdbush from 'kdbush'
 import * as _ from 'lodash'
+import { AnyAction, applyMiddleware, createStore, Reducer } from 'redux'
+import { createLogger } from 'redux-logger'
 
 type XY = [number, number]
+
+const prefix = '@basil/'
+
+const actionTypes = {
+  addPolygon: `${prefix}ADD_POLYGON`,
+  setMousePos: `${prefix}SET_MOUSE_POSITION`,
+}
+
+const actions = {
+  addPolygon: (polygon: XY[]) => ({
+    type: actionTypes.addPolygon,
+    payload: polygon,
+  }),
+  setMousePos: (xy: XY) => ({ type: actionTypes.setMousePos, payload: xy }),
+}
+
+interface State {
+  position: XY
+  polygons: XY[][]
+}
+
+const initialState: State = {
+  position: [0, 0],
+  polygons: [],
+}
+
+const reducer = (state: State, action: AnyAction): State => {
+  switch (action.type) {
+    case actionTypes.setMousePos:
+      return {
+        ...state,
+        position: action.payload,
+      }
+    default:
+      return state
+  }
+}
+
+const store = createStore(
+  reducer,
+  initialState
+  // applyMiddleware(createLogger())
+)
 
 function c(e: MouseEvent): XY {
   return [e.offsetX, e.offsetY]
@@ -51,17 +98,25 @@ function pDistance([x, y]: XY, [[x1, y1], [x2, y2]]: [XY, XY]) {
   return [[xx, yy], Math.sqrt(dx * dx + dy * dy)] as [XY, number]
 }
 
+type Project = (xy: XY) => XY
+
+const getHover = () => store.getState().position
+
 export default function withCtx(
   size: XY,
   canvas: HTMLCanvasElement,
-  ctx: CanvasRenderingContext2D
+  ctx: CanvasRenderingContext2D,
+  input: { toLatLng: Project; fromLatLng: Project; data: any; onUpdate: any }
 ) {
-  let index = kdbush([])
   const coordinates: XY[] = []
+  let db = coordAll(input.data).map(input.fromLatLng)
+  let list = db
+  let index = kdbush(db)
   let circles: XY[] = []
   const polygons: XY[][] = []
   const to: XY = [0, 0]
-  let hover: XY = [0, 0]
+
+  store.subscribe(() => draw())
 
   const drawMarkers = () => {
     const [c1, ...cs] = circles
@@ -90,11 +145,18 @@ export default function withCtx(
 
     const p = drawNearestLineToHover()
 
+    geomEach(input.data, (geom) => {
+      if (isMultiPolygon(geom)) {
+        drawMultiPolygon(geom)
+      }
+    })
+
+    const hover = getHover()
     const near = index.within(hover[0], hover[1], 10)
     if (near.length) {
-      circle(coordinates[near[0]], 'Yellow', 5)
+      circle(list[near[0]], 'Yellow', 5)
     } else if (p) {
-      circle(p, 'Yellow', 5)
+      circle(p, 'Orange', 5)
     } else {
       circle(hover)
     }
@@ -141,7 +203,7 @@ export default function withCtx(
     ctx.stroke()
   }
 
-  const drawNearestLineToHover = (coords = hover, drawIt = true) => {
+  const drawNearestLineToHover = (coords = getHover(), drawIt = true) => {
     let px: XY | undefined
     polygons.find((poly): boolean => {
       const [first, ...rest] = poly
@@ -170,8 +232,7 @@ export default function withCtx(
   }
 
   const onMouseMove = (e: MouseEvent) => {
-    hover = c(e)
-    draw()
+    store.dispatch(actions.setMousePos(c(e)))
   }
 
   canvas.addEventListener('mousemove', onMouseMove)
@@ -195,7 +256,7 @@ export default function withCtx(
       const near = index.within(x, y, 10)
       if (near.length) {
         circles.pop()
-        circles.push(coordinates[near[0]])
+        circles.push(list[near[0]])
 
         if (
           circles.length >= 3 &&
@@ -219,7 +280,8 @@ export default function withCtx(
         }
       }
 
-      index = kdbush(coordinates)
+      list = [...coordinates, ...db]
+      index = kdbush(list)
 
       draw()
     }
@@ -229,10 +291,43 @@ export default function withCtx(
   })
 
   ctx.moveTo(0, 0)
-  ;(window as any).data = () => ({
+
+  const isMultiPolygon = (data: any): data is MultiPolygon =>
+    data.type === 'MultiPolygon'
+  const isPolygon = (data: any): data is Polygon => data.type === 'Polygon'
+
+  const drawMultiPolygon = (geom: MultiPolygon) => {
+    geom.coordinates.forEach((polygon) => {
+      polygon.forEach((lineString) => {
+        const [first, ...rest] = lineString
+        ctx.moveTo(first[0], first[1])
+        ctx.beginPath()
+
+        for (let k = 0; k < rest.length - 2; k++) {
+          const [lng, lat] = rest[k]
+          const [x, y] = input.fromLatLng([lng, lat])
+          //      ctx.arc(x, y, 3, 0, 360)
+          ctx.lineTo(x, y)
+        }
+
+        ctx.closePath()
+        ctx.fillStyle = 'rgba(0,0,0,0.1)'
+        ctx.fill()
+        // ctx.fill()
+        ctx.stroke()
+      })
+    })
+  }
+
+  input.onUpdate(() => {
+    db = coordAll(input.data).map(input.fromLatLng)
+    list = [...coordinates, ...db]
+    index = kdbush(list)
+    draw()
+  })
+  ; (window as any).data = () => ({
     circles,
     coordinates,
-    hover,
     index,
     polygons,
   })
