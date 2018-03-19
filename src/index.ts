@@ -3,8 +3,10 @@ import * as _ from 'lodash'
 import 'normalize.css/normalize.css'
 import * as React from 'react'
 import { render } from 'react-dom'
+import Blip from './Map'
 
 const root = document.getElementById('root')
+render(React.createElement(Blip, {}), root)
 
 type XY = [number, number]
 
@@ -22,6 +24,7 @@ function getColor() {
 
   return `rgba(${rgba})`
 }
+
 function pDistance([x, y]: XY, [[x1, y1], [x2, y2]]: [XY, XY]) {
   const A = x - x1
   const B = y - y1
@@ -59,7 +62,7 @@ function pDistance([x, y]: XY, [[x1, y1], [x2, y2]]: [XY, XY]) {
 if (root) {
   const canvas = document.createElement('canvas')
 
-  root.appendChild(canvas)
+  // root.appendChild(canvas)
   const size: XY = [root.offsetWidth, root.offsetHeight]
   canvas.width = root.offsetWidth
   canvas.height = root.offsetHeight

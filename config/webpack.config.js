@@ -54,9 +54,24 @@ module.exports = {
     })
   ],
   resolve: {
-    extensions: [".ts", ".mjs", ".js"]
+    extensions: [".tsx", ".ts", ".mjs", ".js", ".jsx"]
   },
   module: {
-    rules: [typescriptLoader, javascriptLoader, styleLoader]
+    rules: [
+      typescriptLoader,
+      javascriptLoader,
+      styleLoader,
+      {
+        test: /\.(png|jpg|gif)$/,
+        use: [
+          {
+            loader: "url-loader",
+            options: {
+              limit: 8192
+            }
+          }
+        ]
+      }
+    ]
   }
 };
