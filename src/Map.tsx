@@ -2,20 +2,22 @@ import { GeoJsonObject } from 'geojson'
 import * as L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import * as React from 'react'
-import { Map, TileLayer } from 'react-leaflet'
+import { GeoJSON, Map, TileLayer } from 'react-leaflet'
+import Bazil from './Bazil'
 import leerbroek from './leerbroek.json'
 
 declare module './leerbroek.json' {
   const value: any
   export default value
 }
+
 const osmUrl = 'http://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png'
 
 export default class Blip extends React.Component<any> {
   public onRef(ref: Map | null) {
-    if (ref) {
-      L.geoJSON(leerbroek).addTo(ref.leafletElement)
-    }
+    // if (ref) {
+    //   L.geoJSON(leerbroek).addTo(ref.leafletElement)
+    // }
   }
 
   public render() {
@@ -28,6 +30,8 @@ export default class Blip extends React.Component<any> {
         ref={this.onRef}
       >
         <TileLayer url={osmUrl} />
+        <GeoJSON data={leerbroek} />
+        <Bazil />
       </Map>
     )
   }

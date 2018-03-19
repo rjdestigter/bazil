@@ -4,7 +4,9 @@
   "jsRules": {},
   "rules": {
     "quotemark": false,
-    "semicolon": false
+    "semicolon": false,
+    "trailing-comma": false,
+    "interface-name": false
   },
   "rulesDirectory": []
 }
