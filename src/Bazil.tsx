@@ -54,6 +54,8 @@ export default class Bazil extends React.Component<any, State> {
       const ctx = node.getContext('2d')
 
       if (ctx) {
+        let data = [leerbroek]
+
         const toLngLat = ([x, y]: number[]): number[] => {
           const point = this.map.containerPointToLatLng([x, y])
           return [point.lng, point.lat]
@@ -64,14 +66,29 @@ export default class Bazil extends React.Component<any, State> {
           return [point.x, point.y]
         }
 
-        const p = purlieu({
+        const app = purlieu({
           canvas: node,
           toLngLat,
           fromLngLat,
-          data: [leerbroek],
+          data,
         })
 
-        this.map.on('move zoom', p.init
+        app.onChange(next => {
+          data = next
+        })
+
+        app.store.subscribe(() => {
+          const state = app.store.getState()
+          if (this.map.dragging.enabled() && state.dragging.length) {
+            this.map.dragging.disable()
+          } else if (!this.map.dragging.enabled()) {
+            this.map.dragging.enable()
+          }
+        })
+
+        this.map.on('move zoom', () => app.init(data))
+        window.basil = this
+        window.app = app
       }
     }
   }

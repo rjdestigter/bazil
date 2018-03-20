@@ -23,10 +23,10 @@ const typescriptLoader = {
   use: [
     babelLoader,
     {
-      loader: "ts-loader"
-      //   options: {
-      //     transpileOnly: true
-      //   }
+      loader: "ts-loader",
+      options: {
+        transpileOnly: true
+      }
     }
   ]
 };
