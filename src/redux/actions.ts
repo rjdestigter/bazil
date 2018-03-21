@@ -1,5 +1,5 @@
 import * as constants from './constants'
-import { AnyGeoJSON } from './types'
+import { AnyGeoJSON, State } from './types'
 
 const create = <P>(type: string) => (payload: P) => ({ type, payload })
 
@@ -19,3 +19,9 @@ export const updatePositions = create<{
 }>(constants.UPDATE_POSITIONS)
 
 export const toggleDrag = create<number[][]>(constants.UPDATE_DRAGGING)
+
+export const updateSettings = create<State['settings']>(
+  constants.UPDATE_SETTINGS
+)
+
+export const onClick = create<number[]>(constants.CLICK)

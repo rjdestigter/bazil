@@ -1,0 +1,39 @@
+[1mdiff --git a/src/redux/Purlieu.ts b/src/redux/Purlieu.ts[m
+[1mindex 9b9e381..0d4fd75 100644[m
+[1m--- a/src/redux/Purlieu.ts[m
+[1m+++ b/src/redux/Purlieu.ts[m
+[36m@@ -137,6 +137,8 @@[m [mclass Purlieu {[m
+   }[m
+ [m
+   private multiPolygon = (geom: MultiPolygon) => {[m
+[32m+[m[32m    const arcs: number[][] = [][m
+[32m+[m
+     geom.coordinates.forEach(polygon => {[m
+       polygon.forEach(lineString => {[m
+         const [first, ...rest] = lineString[m
+[36m@@ -146,6 +148,7 @@[m [mclass Purlieu {[m
+         for (let k = 0; k < rest.length - 2; k++) {[m
+           const [x, y] = rest[k][m
+           //      this.ctx.arc(x, y, 3, 0, 360)[m
+[32m+[m[32m          arcs.push([x, y])[m
+           this.ctx.lineTo(x, y)[m
+         }[m
+ [m
+[36m@@ -156,6 +159,15 @@[m [mclass Purlieu {[m
+         this.ctx.stroke()[m
+       })[m
+     })[m
+[32m+[m
+[32m+[m[32m    arcs.map(([x, y]) => {[m
+[32m+[m[32m      this.ctx.beginPath()[m
+[32m+[m[32m      this.ctx.arc(x, y, 5, 0, 2 * Math.PI)[m
+[32m+[m[32m      this.ctx.fillStyle = '#ffffff'[m
+[32m+[m[32m      this.ctx.strokeStyle = '#000000'[m
+[32m+[m[32m      this.ctx.fill()[m
+[32m+[m[32m      this.ctx.stroke()[m
+[32m+[m[32m    })[m
+   }[m
+ }[m
+ [m
+warning: LF will be replaced by CRLF in package.json.
+The file will have its original line endings in your working directory.

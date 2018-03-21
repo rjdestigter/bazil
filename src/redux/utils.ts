@@ -11,12 +11,16 @@ import {
 import { AnyGeoJSON } from './types'
 
 type Project = (xy: number[]) => number[]
+
 interface Collect {
   coordinates: number[][]
   lines: number[][][]
 }
 
 const defaultCollect = (): Collect => ({ coordinates: [], lines: [] })
+
+export const pointIsEqual = ([x1, y1]: number[], [x2, y2]: number[]): boolean =>
+  _.isEqual([x1, y1], [x2, y2])
 
 export const projectGeoJSON = (project: Project) => (
   collect: Collect = defaultCollect()
@@ -128,7 +132,7 @@ export const replacePosition = (positions: number[][], point: number[]) => (
   coords: Position[]
 ) =>
   coords.map((coord, index) => {
-    const isInList = positions.find(pos => _.isEqual(pos, coord))
+    const isInList = positions.find(pos => pointIsEqual(pos, coord))
 
     if (isInList) {
       return point

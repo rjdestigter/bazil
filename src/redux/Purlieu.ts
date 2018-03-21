@@ -19,6 +19,9 @@ import {
   replacePointInGeoJSON,
 } from './utils'
 
+const pointIsEqual = ([x1, y1]: number[], [x2, y2]: number[]): boolean =>
+  _.isEqual([x1, y1], [x2, y2])
+
 interface Config {
   canvas: HTMLCanvasElement
   fromLngLat: (lnglat: number[]) => number[]
@@ -40,6 +43,7 @@ class Purlieu {
   private data: AnyGeoJSON[]
   private fromLngLat: (xy: number[]) => number[]
   private toLngLat: (xy: number[]) => number[]
+  private placeholderLines: number[][][] = []
 
   constructor({ canvas, fromLngLat, toLngLat, data = [] }: Config) {
     this.data = data
@@ -56,8 +60,11 @@ class Purlieu {
     this.canvas = canvas
     this.ctx = canvas.getContext('2d') as CanvasRenderingContext2D
 
+    canvas.addEventListener('click', (e: MouseEvent) => {
+      this.store.dispatch(actions.onClick(e2xy(e)))
+    })
+
     canvas.addEventListener('mousemove', (e: MouseEvent) => {
-      e.stopPropagation()
       this.store.dispatch(actions.updateMousePosition(e2xy(e)))
     })
 
@@ -96,6 +103,31 @@ class Purlieu {
 
     canvas.addEventListener('mousedown', onMouseDown)
     window.foo = this
+  }
+
+  public onToggleSnap() {
+    const settings = this.store.getState().settings
+
+    this.store.dispatch(
+      actions.updateSettings({
+        ...settings,
+        snap: {
+          lines: !settings.snap.lines,
+          points: !settings.snap.points,
+        },
+      })
+    )
+  }
+
+  public onToggleTopology() {
+    const settings = this.store.getState().settings
+
+    this.store.dispatch(
+      actions.updateSettings({
+        ...settings,
+        topology: !settings.topology,
+      })
+    )
   }
 
   public onChange(cb: (data: AnyGeoJSON[]) => void) {
@@ -140,7 +172,16 @@ class Purlieu {
     this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height)
 
     const markers = ([] as number[][]).concat(
-      ...state.data.map(geom => this.drawGeom(geom))
+      ...state.data.map((geom, index) => {
+        if (index === state.hoverIndex) {
+          return this.drawGeom(geom, {
+            fillStyle: 'rgba(255, 255, 255, 0.5)',
+            strokeStyle: '#111111',
+          })
+        }
+
+        return this.drawGeom(geom)
+      })
     )
 
     if (state.line) {
@@ -157,24 +198,45 @@ class Purlieu {
     this.ctx.fillStyle = '#ffffff'
     this.ctx.strokeStyle = '#000000'
 
-    markers.map(([x, y]) => {
-      this.ctx.beginPath()
-      this.ctx.arc(x, y, 5, 0, 2 * Math.PI)
-      this.ctx.fill()
-      this.ctx.stroke()
-    })
+    if (state.editing >= 0) {
+      markers.map(([x, y]) => {
+        this.ctx.beginPath()
+        this.ctx.arc(x, y, 5, 0, 2 * Math.PI)
+        this.ctx.fill()
+        this.ctx.stroke()
+      })
+
+      this.placeholderLines.map(line => {
+        this.ctx.beginPath()
+        const [[px1, py1], [px2, py2]] = line
+        this.ctx.moveTo(px1, py1)
+        this.ctx.strokeStyle = '#555555'
+        this.ctx.setLineDash([5, 5])
+        this.ctx.lineTo(px2, py2)
+        this.ctx.stroke()
+        this.ctx.setLineDash([0, 0])
+      })
+
+      this.placeholderLines = []
+    }
 
     this.drawMousePosition()
   }
 
-  private drawGeom(geom: AnyGeoJSON): number[][] {
+  private drawGeom(
+    geom: AnyGeoJSON,
+    options: { fillStyle: string; strokeStyle: string } = {
+      fillStyle: 'rgba(0,0,0,0.2)',
+      strokeStyle: '#111111',
+    }
+  ): number[][] {
     switch (geom.type) {
       case 'GeometryCollection':
         return ([] as number[][]).concat(
-          ...geom.geometries.map(g => this.drawGeom(g))
+          ...geom.geometries.map(g => this.drawGeom(g, options))
         )
       case 'MultiPolygon':
-        return this.multiPolygon(geom)
+        return this.multiPolygon(geom, options)
     }
 
     return []
@@ -197,7 +259,13 @@ class Purlieu {
     this.ctx.stroke()
   }
 
-  private multiPolygon = (geom: MultiPolygon) => {
+  private multiPolygon = (
+    geom: MultiPolygon,
+    options: { fillStyle: string; strokeStyle: string } = {
+      fillStyle: 'rgba(0,0,0,0.2)',
+      strokeStyle: '#111111',
+    }
+  ) => {
     const state = this.store.getState()
     const markers: number[][] = []
 
@@ -212,13 +280,17 @@ class Purlieu {
 
           if (state.dragging.length) {
             const isDraggingPoint = state.dragging.find(point =>
-              _.isEqual(point, [x, y])
+              pointIsEqual(point, [x, y])
             )
 
             if (isDraggingPoint) {
               const mxy = state.mousePosition
               markers.push(mxy)
               this.ctx.lineTo(mxy[0], mxy[1])
+              this.placeholderLines.push(
+                [rest[k - 1] || first, [x, y]],
+                [[x, y], rest[k + 1] || first]
+              )
             } else {
               markers.push([x, y])
               this.ctx.lineTo(x, y)
@@ -230,7 +302,8 @@ class Purlieu {
         }
 
         this.ctx.closePath()
-        this.ctx.fillStyle = 'rgba(0,0,0,0.1)'
+        this.ctx.fillStyle = options.fillStyle
+        this.ctx.strokeStyle = options.strokeStyle
         this.ctx.fill()
         // this.ctx.fill()
         this.ctx.stroke()
