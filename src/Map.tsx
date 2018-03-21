@@ -19,8 +19,9 @@ export default class Blip extends React.Component<any> {
       <Map
         preferCanvas
         style={{ height: '100%', width: '100%' }}
-        center={[51.9197203, 5.0256929]}
-        zoom={17}
+        center={[0, 0]}
+        // center={[51.9197203, 5.0256929]}
+        zoom={1}
         ref={this.onRef}
         worldCopyJump
         maxZoom={24}

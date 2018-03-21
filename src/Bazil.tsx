@@ -4,6 +4,7 @@ import * as React from 'react'
 import basil from './basil'
 import leerbroek from './leerbroek.json'
 import purlieu from './redux/Purlieu'
+import fields from './sample.json'
 
 interface State {
   size: {
@@ -11,6 +12,12 @@ interface State {
     height: number
   }
 }
+
+const geojson = [leerbroek].concat(
+  fields
+    .filter(field => field.shape && field.shape.shapeData)
+    .map(field => JSON.parse(field.shape.shapeData))
+)
 
 interface Context {
   map: Map
@@ -54,7 +61,7 @@ export default class Bazil extends React.Component<any, State> {
       const ctx = node.getContext('2d')
 
       if (ctx) {
-        let data = [leerbroek]
+        let data = geojson
 
         const toLngLat = ([x, y]: number[]): number[] => {
           const point = this.map.containerPointToLatLng([x, y])

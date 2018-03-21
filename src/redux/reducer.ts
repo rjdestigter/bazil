@@ -156,10 +156,10 @@ export const initialState: State = {
   editing: -1,
   settings: {
     snap: {
-      points: false,
-      lines: false,
+      points: true,
+      lines: true,
     },
-    topology: false,
+    topology: true,
   },
 }
 

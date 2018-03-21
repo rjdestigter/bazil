@@ -1,6 +1,8 @@
 import _ from 'lodash'
 
 import {
+  Feature,
+  FeatureCollection,
   Geometries,
   GeometryCollection,
   MultiPolygon,
@@ -8,7 +10,7 @@ import {
   Position,
 } from '@turf/helpers'
 
-import { AnyGeoJSON } from './types'
+import { AnyGeoJSON, PolyLike } from './types'
 
 type Project = (xy: number[]) => number[]
 
@@ -30,6 +32,10 @@ export const projectGeoJSON = (project: Project) => (
       return projectMultiPolygon(project)(collect)(geom)
     case 'Polygon':
       return projectPolygon(project)(collect)(geom)
+    case 'FeatureCollection':
+      return projectFeatureCollection(project)(collect)(geom as any)
+    case 'Feature':
+      return projectFeature(project)(collect)(geom)
     case 'GeometryCollection':
       return projectGeometryCollection(project)(collect)(geom)
     default:
@@ -37,38 +43,26 @@ export const projectGeoJSON = (project: Project) => (
   }
 }
 
-export const replacePointInGeoJSON = (
-  positions: number[][],
-  point: number[]
-) => (geom: AnyGeoJSON): AnyGeoJSON => {
-  switch (geom.type) {
-    case 'MultiPolygon':
-      return replacePointInMultiPolygon(positions, point)(geom)
-    case 'Polygon':
-      return replacePointInPolygon(positions, point)(geom)
-    case 'GeometryCollection':
-      return replacePointInGeometryCollection(positions, point)(geom)
-    default:
-      return geom
-  }
-}
+export const projectFeature = (project: Project) => (
+  collect: Collect = defaultCollect()
+) => (geom: any): Feature<PolyLike> => ({
+  ...geom,
+  geometry: projectGeoJSON(project)(collect)(geom.geometry),
+})
+
+export const projectFeatureCollection = (project: Project) => (
+  collect: Collect = defaultCollect()
+) => (geom: any): FeatureCollection<PolyLike> => ({
+  ...geom,
+  features: geom.features.map(projectFeature(project)(collect)),
+})
 
 export const projectGeometryCollection = (project: Project) => (
   collect: Collect = defaultCollect()
-) => (geom: GeometryCollection) => ({
+) => (geom: any): GeometryCollection => ({
   ...geom,
   geometries: geom.geometries.map(
     projectGeoJSON(project)(collect)
-  ) as Geometries[],
-})
-
-export const replacePointInGeometryCollection = (
-  positions: number[][],
-  point: number[]
-) => (geom: GeometryCollection) => ({
-  ...geom,
-  geometries: geom.geometries.map(
-    replacePointInGeoJSON(positions, point)
   ) as Geometries[],
 })
 
@@ -81,16 +75,6 @@ export const projectMultiPolygon = (project: Project) => (
   ),
 })
 
-export const replacePointInMultiPolygon = (
-  positions: number[][],
-  point: number[]
-) => (polygon: MultiPolygon) => ({
-  ...polygon,
-  coordinates: polygon.coordinates.map(poly =>
-    poly.map(replacePosition(positions, point))
-  ),
-})
-
 export const projectPolygon = (project: Project) => (
   collect: Collect = defaultCollect()
 ) => (polygon: Polygon) => {
@@ -100,45 +84,22 @@ export const projectPolygon = (project: Project) => (
   }
 }
 
-export const replacePointInPolygon = (
-  positions: number[][],
-  point: number[]
-) => (polygon: Polygon) => {
-  return {
-    ...polygon,
-    coordinates: polygon.coordinates.map(replacePosition(positions, point)),
-  }
-}
-
 export const projectPositions = (project: Project) => (
   collect: Collect = defaultCollect()
 ) => (coords: Position[]) =>
   coords.map((coord, index) => {
     const projected = project(coord)
 
-    collect.coordinates.push(projected)
+    collect.coordinates.push([projected[0], projected[1]])
 
     if (index > 0) {
       collect.lines.push([
         collect.coordinates[collect.coordinates.length - 2],
-        projected,
+        [projected[0], projected[1]],
       ])
     }
 
     return projected
-  })
-
-export const replacePosition = (positions: number[][], point: number[]) => (
-  coords: Position[]
-) =>
-  coords.map((coord, index) => {
-    const isInList = positions.find(pos => pointIsEqual(pos, coord))
-
-    if (isInList) {
-      return point
-    }
-
-    return coord
   })
 
 export const pointToLineDistance = (
