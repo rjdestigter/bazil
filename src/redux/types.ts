@@ -5,7 +5,16 @@ import {
   FeatureCollection,
   Geometries,
   GeometryCollection,
+  MultiPolygon,
+  Polygon,
 } from '@turf/helpers'
+
+export type PolyLike = Polygon | MultiPolygon
+export type AnyGeoJSON =
+  | PolyLike
+  | Feature<PolyLike>
+  | FeatureCollection<PolyLike>
+  | GeometryCollection
 
 export interface State {
   mousePosition: number[]
@@ -29,9 +38,3 @@ export interface State {
     topology: boolean
   }
 }
-
-export type AnyGeoJSON =
-  | Feature
-  | FeatureCollection
-  | Geometries
-  | GeometryCollection

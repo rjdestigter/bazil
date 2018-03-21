@@ -12,7 +12,8 @@ import * as _ from 'lodash'
 import { AnyAction, applyMiddleware, createStore, Reducer, Store } from 'redux'
 import { createLogger } from 'redux-logger'
 import * as actions from './actions'
-import reducer, { AnyGeoJSON, initialState, State } from './reducer'
+import reducer, { initialState } from './reducer'
+import { AnyGeoJSON, PolyLike, State } from './types'
 import {
   pointToLineDistance,
   projectGeoJSON,
@@ -34,6 +35,13 @@ interface Project {
   toLngLat: (xy: number[]) => number[]
 }
 
+interface Result {
+  markers: number[][]
+  placeholderLines: number[][][]
+  draggedMarkerIsDrawn: boolean
+  index: number
+}
+
 const e2xy = (e: MouseEvent) => [e.offsetX, e.offsetY]
 
 class Purlieu {
@@ -43,7 +51,7 @@ class Purlieu {
   private data: AnyGeoJSON[]
   private fromLngLat: (xy: number[]) => number[]
   private toLngLat: (xy: number[]) => number[]
-  private placeholderLines: number[][][] = []
+  private nextData: AnyGeoJSON[] = []
 
   constructor({ canvas, fromLngLat, toLngLat, data = [] }: Config) {
     this.data = data
@@ -90,10 +98,17 @@ class Purlieu {
 
     const onMouseUp = (e: MouseEvent) => {
       if (this.store.getState().dragging) {
+        const collection: {
+          lines: number[][][]
+          coordinates: number[][]
+        } = { lines: [], coordinates: [] }
+
+        this.nextData.map(projectGeoJSON(a => a)(collection))
+
         this.store.dispatch(
           actions.updatePositions({
-            positions: this.store.getState().dragging,
-            point: this.store.getState().mousePosition,
+            data: this.nextData,
+            ...collection,
           })
         )
       }
@@ -171,18 +186,30 @@ class Purlieu {
 
     this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height)
 
-    const markers = ([] as number[][]).concat(
-      ...state.data.map((geom, index) => {
-        if (index === state.hoverIndex) {
-          return this.drawGeom(geom, {
+    const result: Result = {
+      markers: [],
+      placeholderLines: [],
+      draggedMarkerIsDrawn: false,
+      index: -1,
+    }
+
+    this.nextData = state.data.map((geom, index) => {
+      if (index === state.hoverIndex || index === state.editing) {
+        return this.drawGeom(
+          geom,
+          { ...result, index },
+          {
             fillStyle: 'rgba(255, 255, 255, 0.5)',
             strokeStyle: '#111111',
-          })
-        }
+          }
+        )
+      }
 
-        return this.drawGeom(geom)
+      return this.drawGeom(geom, result, {
+        fillStyle: 'rgba(0, 0, 0, 0.2)',
+        strokeStyle: '#111111',
       })
-    )
+    })
 
     if (state.line) {
       this.ctx.beginPath()
@@ -199,14 +226,14 @@ class Purlieu {
     this.ctx.strokeStyle = '#000000'
 
     if (state.editing >= 0) {
-      markers.map(([x, y]) => {
+      result.markers.map(([x, y]) => {
         this.ctx.beginPath()
         this.ctx.arc(x, y, 5, 0, 2 * Math.PI)
         this.ctx.fill()
         this.ctx.stroke()
       })
 
-      this.placeholderLines.map(line => {
+      result.placeholderLines.map(line => {
         this.ctx.beginPath()
         const [[px1, py1], [px2, py2]] = line
         this.ctx.moveTo(px1, py1)
@@ -223,23 +250,26 @@ class Purlieu {
     this.drawMousePosition()
   }
 
-  private drawGeom(
+  private drawGeom<G>(
     geom: AnyGeoJSON,
-    options: { fillStyle: string; strokeStyle: string } = {
-      fillStyle: 'rgba(0,0,0,0.2)',
-      strokeStyle: '#111111',
-    }
-  ): number[][] {
+    result: Result,
+    options: { fillStyle: string; strokeStyle: string }
+  ): AnyGeoJSON {
     switch (geom.type) {
       case 'GeometryCollection':
-        return ([] as number[][]).concat(
-          ...geom.geometries.map(g => this.drawGeom(g, options))
+        const nextGeometries: any = geom.geometries.map(g =>
+          this.drawGeom(g as PolyLike, result, options)
         )
+
+        return {
+          ...geom,
+          geometries: nextGeometries,
+        }
       case 'MultiPolygon':
-        return this.multiPolygon(geom, options)
+        return this.multiPolygon(geom, result, options)
     }
 
-    return []
+    return [] as any
   }
 
   private drawMousePosition() {
@@ -259,45 +289,53 @@ class Purlieu {
     this.ctx.stroke()
   }
 
-  private multiPolygon = (
+  private multiPolygon(
     geom: MultiPolygon,
-    options: { fillStyle: string; strokeStyle: string } = {
-      fillStyle: 'rgba(0,0,0,0.2)',
-      strokeStyle: '#111111',
-    }
-  ) => {
+    result: Result,
+    options: { fillStyle: string; strokeStyle: string }
+  ): MultiPolygon {
     const state = this.store.getState()
-    const markers: number[][] = []
 
-    geom.coordinates.forEach(polygon => {
-      polygon.forEach(lineString => {
+    const nexxCoordinates = geom.coordinates.map(polygon => {
+      return polygon.map(lineString => {
         const [first, ...rest] = lineString
         this.ctx.moveTo(first[0], first[1])
         this.ctx.beginPath()
 
-        for (let k = 0; k < rest.length - 2; k++) {
-          const [x, y] = rest[k]
+        const r: number[][] = [first]
 
-          if (state.dragging.length) {
+        for (let k = 0; k < rest.length - 2; k++) {
+          const [x, y, a, b] = rest[k]
+
+          if (
+            state.dragging.length &&
+            (state.settings.topology ||
+              (!result.draggedMarkerIsDrawn && state.editing === result.index))
+          ) {
             const isDraggingPoint = state.dragging.find(point =>
               pointIsEqual(point, [x, y])
             )
 
             if (isDraggingPoint) {
               const mxy = state.mousePosition
-              markers.push(mxy)
+              result.markers.push(mxy)
               this.ctx.lineTo(mxy[0], mxy[1])
-              this.placeholderLines.push(
+              result.draggedMarkerIsDrawn = true
+              result.placeholderLines.push(
                 [rest[k - 1] || first, [x, y]],
                 [[x, y], rest[k + 1] || first]
               )
+
+              r.push(mxy)
             } else {
-              markers.push([x, y])
+              result.markers.push([x, y])
               this.ctx.lineTo(x, y)
+              r.push(rest[k])
             }
           } else {
-            markers.push([x, y])
+            result.markers.push([x, y])
             this.ctx.lineTo(x, y)
+            r.push(rest[k])
           }
         }
 
@@ -307,10 +345,17 @@ class Purlieu {
         this.ctx.fill()
         // this.ctx.fill()
         this.ctx.stroke()
+
+        r.push(rest[rest.length - 1])
+        r.push(first)
+        return r
       })
     })
 
-    return markers
+    return {
+      ...geom,
+      coordinates: nexxCoordinates,
+    }
   }
 }
 

@@ -14,8 +14,9 @@ export const updateMousePosition = create<number[]>(
 )
 
 export const updatePositions = create<{
-  positions: number[][]
-  point: number[]
+  data: AnyGeoJSON[]
+  lines: number[][][]
+  coordinates: number[][]
 }>(constants.UPDATE_POSITIONS)
 
 export const toggleDrag = create<number[][]>(constants.UPDATE_DRAGGING)

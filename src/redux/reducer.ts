@@ -7,6 +7,8 @@ import {
   point as toPoint,
 } from '@turf/helpers'
 
+import { coordAll } from '@turf/meta'
+
 import pointsWithinPolygon from '@turf/points-within-polygon'
 
 import kdbush from 'kdbush'
@@ -30,21 +32,23 @@ interface Action<P> {
 const updateMousePosition = (state: State, action: Action<number[]>): State => {
   const [x, y] = action.payload
   const geopoints = toFeatureCollection([toPoint([x, y])])
-  let hoverIndex = -1
+  let hoverIndex = state.editing
 
-  state.data.find((geom, index) => {
-    const result = pointsWithinPolygon(geopoints, geom)
-    if (result.features.length) {
-      hoverIndex = index
-      return true
-    }
+  if (state.editing < 0) {
+    state.data.find((geom, index) => {
+      const result = pointsWithinPolygon(geopoints, geom)
+      if (result.features.length) {
+        hoverIndex = index
+        return true
+      }
 
-    return false
-  })
+      return false
+    })
+  }
+
+  const nearPoints = state.index.within(x, y, 10)
 
   if (state.settings.snap.points) {
-    const nearPoints = state.index.within(x, y, 10)
-
     if (nearPoints.length) {
       return {
         ...state,
@@ -76,7 +80,7 @@ const updateMousePosition = (state: State, action: Action<number[]>): State => {
     ...state,
     line: undefined,
     snap: undefined,
-    near: [],
+    near: nearPoints.map(i => state.coordinates[i]),
     mousePosition: action.payload,
     hoverIndex,
   }
@@ -104,25 +108,21 @@ const init = (
 
 const updatePositions = (
   state: State,
-  action: Action<{ positions: number[][]; point: number[] }>
+  action: Action<{
+    data: AnyGeoJSON[]
+    coordinates: number[][]
+    lines: number[][][]
+  }>
 ) => {
-  const coordinates = replacePosition(
-    action.payload.positions,
-    action.payload.point
-  )(state.coordinates)
+  const empty: number[][] = []
+  const coordinates = empty.concat(
+    ...action.payload.data.map(geom => coordAll(geom))
+  )
 
   return {
     ...state,
-    coordinates,
-    lines: state.lines.map(line => {
-      return replacePosition(action.payload.positions, action.payload.point)(
-        line
-      )
-    }),
-    data: state.data.map(
-      replacePointInGeoJSON(action.payload.positions, action.payload.point)
-    ),
-    index: kdbush(coordinates),
+    ...action.payload,
+    index: kdbush(action.payload.coordinates),
     dragging: [],
   }
 }
