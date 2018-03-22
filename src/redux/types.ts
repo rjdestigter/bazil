@@ -1,4 +1,5 @@
 import kdbush from 'kdbush'
+import rbush from 'rbush'
 
 import {
   Feature,
@@ -16,14 +17,23 @@ export type AnyGeoJSON =
   | FeatureCollection<PolyLike>
   | GeometryCollection
 
+export interface Item extends rbush.BBox {
+  data: AnyGeoJSON
+  index: number
+}
+
 export interface State {
+  bbox: rbush.BBox
   mousePosition: number[]
   line: number[][] | undefined
   snap: 'point' | 'line' | undefined
   near: number[][]
   data: AnyGeoJSON[]
   meta: AnyGeoJSON[]
-  index: kdbush.KDBush<number[][]>
+  indices: {
+    points: kdbush.KDBush<number[][]>
+    polygons: rbush.RBush<Item>
+  }
   coordinates: number[][]
   lines: number[][][]
   drawing: number[][]

@@ -1,3 +1,4 @@
+import rewind from '@turf/rewind'
 import { Map } from 'leaflet'
 import * as PropTypes from 'prop-types'
 import * as React from 'react'
@@ -16,7 +17,7 @@ interface State {
 const geojson = [leerbroek].concat(
   fields
     .filter(field => field.shape && field.shape.shapeData)
-    .map(field => JSON.parse(field.shape.shapeData))
+    .map(field => rewind(JSON.parse(field.shape.shapeData)))
 )
 
 interface Context {

@@ -7,22 +7,20 @@ import {
   point as toPoint,
 } from '@turf/helpers'
 
+import bbox from '@turf/bbox'
 import { coordAll } from '@turf/meta'
 
 import pointsWithinPolygon from '@turf/points-within-polygon'
 
 import kdbush from 'kdbush'
 import _ from 'lodash'
+import rbush from 'rbush'
 
 import * as constants from './constants'
 
-import {
-  findLineSnapPosition,
-  replacePointInGeoJSON,
-  replacePosition,
-} from './utils'
+import { findLineSnapPosition } from './utils'
 
-import { AnyGeoJSON, State } from './types'
+import { AnyGeoJSON, Item, State } from './types'
 
 interface Action<P> {
   type: string
@@ -46,7 +44,7 @@ const updateMousePosition = (state: State, action: Action<number[]>): State => {
     })
   }
 
-  const nearPoints = state.index.within(x, y, 10)
+  const nearPoints = state.indices.points.within(x, y, 10)
 
   if (state.settings.snap.points) {
     if (nearPoints.length) {
@@ -86,7 +84,7 @@ const updateMousePosition = (state: State, action: Action<number[]>): State => {
   }
 }
 
-const onClick = (state: State, action: Action<number[]>) => {
+const onClick = (state: State, action: Action<number[]>): State => {
   return {
     ...state,
     editing: (state.editing = state.hoverIndex),
@@ -99,12 +97,45 @@ const init = (
     coordinates: number[][]
     lines: number[][][]
     data: AnyGeoJSON[]
+    bbox: rbush.BBox
   }>
-): State => ({
-  ...state,
-  ...action.payload,
-  index: kdbush(action.payload.coordinates),
-})
+): State => {
+  const coordinates: number[][] = []
+  const items: Item[] = []
+
+  const data: AnyGeoJSON[] = action.payload.data.map((geom, index) => {
+    const [minX, minY, maxX, maxY] = bbox(geom)
+    const geojson = {
+      ...geom,
+      bbox: [minX, minY, maxX, maxY] as [number, number, number, number],
+    }
+
+    items.push({
+      minX,
+      minY,
+      maxX,
+      maxY,
+      data: geojson,
+      index,
+    })
+
+    coordinates.push(...coordAll(geom))
+
+    return geojson
+  })
+
+  state.indices.polygons.clear()
+  state.indices.polygons.load(items)
+
+  return {
+    ...state,
+    ...action.payload,
+    indices: {
+      polygons: state.indices.polygons,
+      points: kdbush(action.payload.coordinates),
+    },
+  }
+}
 
 const updatePositions = (
   state: State,
@@ -113,16 +144,43 @@ const updatePositions = (
     coordinates: number[][]
     lines: number[][][]
   }>
-) => {
-  const empty: number[][] = []
-  const coordinates = empty.concat(
-    ...action.payload.data.map(geom => coordAll(geom))
-  )
+): State => {
+  // const empty: number[][] = []
+
+  const coordinates: number[][] = []
+  const items: Item[] = []
+
+  const data: AnyGeoJSON[] = action.payload.data.map((geom, index) => {
+    const [minX, minY, maxX, maxY] = bbox(geom)
+    const geojson = {
+      ...geom,
+      bbox: [minX, minY, maxX, maxY] as [number, number, number, number],
+    }
+
+    items.push({
+      minX,
+      minY,
+      maxX,
+      maxY,
+      data: geojson,
+      index,
+    })
+
+    coordinates.push(...coordAll(geom))
+
+    return geojson
+  })
+
+  state.indices.polygons.clear()
+  state.indices.polygons.load(items)
 
   return {
     ...state,
     ...action.payload,
-    index: kdbush(action.payload.coordinates),
+    indices: {
+      polygons: state.indices.polygons,
+      points: kdbush(action.payload.coordinates),
+    },
     dragging: [],
   }
 }
@@ -147,7 +205,10 @@ export const initialState: State = {
   near: [],
   data: [],
   meta: [],
-  index: kdbush([]),
+  indices: {
+    points: kdbush([]),
+    polygons: rbush(),
+  },
   drawing: [],
   coordinates: [],
   lines: [],

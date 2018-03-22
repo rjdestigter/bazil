@@ -1,3 +1,4 @@
+import rbush from 'rbush'
 import * as constants from './constants'
 import { AnyGeoJSON, State } from './types'
 
@@ -7,6 +8,7 @@ export const init = create<{
   data: AnyGeoJSON[]
   lines: number[][][]
   coordinates: number[][]
+  bbox: rbush.BBox
 }>(constants.INIT)
 
 export const updateMousePosition = create<number[]>(

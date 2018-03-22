@@ -5,6 +5,9 @@ import {
   Polygon,
   Position,
 } from '@turf/helpers'
+
+import rewind from '@turf/rewind'
+
 import { coordAll, geomEach } from '@turf/meta'
 import * as kdbush from 'kdbush'
 import * as L from 'leaflet'
@@ -14,11 +17,7 @@ import { createLogger } from 'redux-logger'
 import * as actions from './actions'
 import reducer, { initialState } from './reducer'
 import { AnyGeoJSON, PolyLike, State } from './types'
-import {
-  pointToLineDistance,
-  projectGeoJSON,
-  replacePointInGeoJSON,
-} from './utils'
+import { pointToLineDistance, projectGeoJSON } from './utils'
 
 const pointIsEqual = ([x1, y1]: number[], [x2, y2]: number[]): boolean =>
   _.isEqual([x1, y1], [x2, y2])
@@ -54,7 +53,7 @@ class Purlieu {
   private nextData: AnyGeoJSON[] = []
 
   constructor({ canvas, fromLngLat, toLngLat, data = [] }: Config) {
-    this.data = data
+    this.data = data.map(geom => rewind(geom))
     this.fromLngLat = fromLngLat
     this.toLngLat = toLngLat
 
@@ -172,10 +171,17 @@ class Purlieu {
       lines: number[][][]
       coordinates: number[][]
     } = { lines: [], coordinates: [] }
+
     this.store.dispatch(
       actions.init({
         data: data.map(projectGeoJSON(project)(collection)),
         ...collection,
+        bbox: {
+          minX: 0,
+          minY: 0,
+          maxX: this.canvas.width,
+          maxY: this.canvas.height,
+        },
       })
     )
     console.timeEnd('init')
@@ -193,22 +199,30 @@ class Purlieu {
       index: -1,
     }
 
+    const items = state.indices.polygons.search(state.bbox)
+    console.info(`Drawing ${items.length} items.`)
     this.nextData = state.data.map((geom, index) => {
-      if (index === state.hoverIndex || index === state.editing) {
-        return this.drawGeom(
-          geom,
-          { ...result, index },
-          {
-            fillStyle: 'rgba(255, 255, 255, 0.5)',
-            strokeStyle: '#111111',
-          }
-        )
+      const item = items.find(i => i.index === index)
+
+      if (item) {
+        if (index === state.hoverIndex || index === state.editing) {
+          return this.drawGeom(
+            geom,
+            { ...result, index: item.index },
+            {
+              fillStyle: 'rgba(255, 255, 255, 0.5)',
+              strokeStyle: '#111111',
+            }
+          )
+        }
+
+        return this.drawGeom(geom, result, {
+          fillStyle: 'rgba(0, 0, 0, 0.2)',
+          strokeStyle: '#111111',
+        })
       }
 
-      return this.drawGeom(geom, result, {
-        fillStyle: 'rgba(0, 0, 0, 0.2)',
-        strokeStyle: '#111111',
-      })
+      return geom
     })
 
     if (state.line) {
@@ -285,7 +299,7 @@ class Purlieu {
   private drawMousePosition() {
     const state = this.store.getState()
     const [x, y] = state.mousePosition
-    const near = state.index.within(x, y, 10)
+    const near = state.indices.points.within(x, y, 10)
 
     this.ctx.beginPath()
     this.ctx.fillStyle =
@@ -306,11 +320,12 @@ class Purlieu {
   ): Polygon {
     const state = this.store.getState()
 
+    this.ctx.beginPath()
+
     const nexxCoordinates = geom.coordinates.map(lineString => {
       const [first, ...rest] = lineString
       let [prevX, prevY] = first
       this.ctx.moveTo(first[0], first[1])
-      this.ctx.beginPath()
 
       const r: number[][] = [first]
 
@@ -336,7 +351,7 @@ class Purlieu {
 
           if (isDraggingPoint) {
             const mxy = state.mousePosition
-            result.markers.push(mxy)
+            // result.markers.push(mxy)
             this.ctx.lineTo(mxy[0], mxy[1])
             result.draggedMarkerIsDrawn = true
             result.placeholderLines.push(
@@ -346,12 +361,16 @@ class Purlieu {
 
             r.push(mxy)
           } else {
-            result.markers.push([x, y])
+            if (result.index === state.editing) {
+              result.markers.push([x, y])
+            }
             this.ctx.lineTo(x, y)
             r.push(rest[k])
           }
         } else {
-          result.markers.push([x, y])
+          if (result.index === state.editing) {
+            result.markers.push([x, y])
+          }
           this.ctx.lineTo(x, y)
           r.push(rest[k])
         }
@@ -361,16 +380,17 @@ class Purlieu {
       }
 
       this.ctx.closePath()
-      this.ctx.fillStyle = options.fillStyle
-      this.ctx.strokeStyle = options.strokeStyle
-      this.ctx.fill()
-      // this.ctx.fill()
-      this.ctx.stroke()
 
       r.push(rest[rest.length - 1])
       r.push(first)
       return r
     })
+
+    this.ctx.fillStyle = options.fillStyle
+    this.ctx.strokeStyle = options.strokeStyle
+    this.ctx.fill()
+    // this.ctx.fill()
+    this.ctx.stroke()
 
     return {
       ...geom,
@@ -386,11 +406,12 @@ class Purlieu {
     const state = this.store.getState()
 
     const nexxCoordinates = geom.coordinates.map(polygon => {
+      this.ctx.beginPath()
+
       return polygon.map(lineString => {
         const [first, ...rest] = lineString
         let [prevX, prevY] = first
         this.ctx.moveTo(first[0], first[1])
-        this.ctx.beginPath()
 
         const r: number[][] = [first]
 
@@ -426,12 +447,16 @@ class Purlieu {
 
               r.push(mxy)
             } else {
-              result.markers.push([x, y])
+              if (result.index === state.editing) {
+                result.markers.push([x, y])
+              }
               this.ctx.lineTo(x, y)
               r.push(rest[k])
             }
           } else {
-            result.markers.push([x, y])
+            if (result.index === state.editing) {
+              result.markers.push([x, y])
+            }
             this.ctx.lineTo(x, y)
             r.push(rest[k])
           }
@@ -441,16 +466,17 @@ class Purlieu {
         }
 
         this.ctx.closePath()
-        this.ctx.fillStyle = options.fillStyle
-        this.ctx.strokeStyle = options.strokeStyle
-        this.ctx.fill()
-        // this.ctx.fill()
-        this.ctx.stroke()
 
         r.push(rest[rest.length - 1])
         r.push(first)
         return r
       })
+
+      this.ctx.fillStyle = options.fillStyle
+      this.ctx.strokeStyle = options.strokeStyle
+      this.ctx.fill()
+      // this.ctx.fill()
+      this.ctx.stroke()
     })
 
     return {
