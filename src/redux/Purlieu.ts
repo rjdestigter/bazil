@@ -80,7 +80,7 @@ class Purlieu {
     this.init()
 
     const onMouseDown = (e: MouseEvent) => {
-      const timeout = setTimeout(() => {
+      const go = () => {
         const state = this.store.getState()
         canvas.removeEventListener('mouseup', onTimeout)
         canvas.addEventListener('mouseup', onMouseUp)
@@ -88,11 +88,23 @@ class Purlieu {
         if (state.near.length) {
           this.store.dispatch(actions.toggleDrag(state.near))
         }
-      }, 100)
+      }
+      const timeout = setTimeout(go, 100)
 
       const onTimeout = () => clearTimeout(timeout)
 
-      canvas.addEventListener('mouseup', onTimeout)
+      const onMove = () => {
+        canvas.removeEventListener('mousemove', onMove)
+        onTimeout()
+        go()
+      }
+
+      canvas.addEventListener('mouseup', () => {
+        onTimeout()
+        canvas.removeEventListener('mousemove', onMove)
+      })
+
+      canvas.addEventListener('mousemove', onMove)
     }
 
     const onMouseUp = (e: MouseEvent) => {
@@ -325,9 +337,28 @@ class Purlieu {
     const nexxCoordinates = geom.coordinates.map(lineString => {
       const [first, ...rest] = lineString
       let [prevX, prevY] = first
-      this.ctx.moveTo(first[0], first[1])
 
-      const r: number[][] = [first]
+      const isDraggingFirst = state.dragging.find(point =>
+        pointIsEqual(point, [prevX, prevY])
+      )
+
+      const r: number[][] = []
+      if (isDraggingFirst) {
+        const [mx, my] = state.mousePosition
+        this.ctx.moveTo(mx, my)
+        r.push([mx, my])
+
+        if (result.index === state.editing) {
+          result.markers.push([mx, my])
+        }
+      } else {
+        this.ctx.moveTo(prevX, prevY)
+        r.push(first)
+
+        if (result.index === state.editing) {
+          result.markers.push(first)
+        }
+      }
 
       for (let k = 0; k < rest.length - 2; k++) {
         const [x, y, a, b] = rest[k]
@@ -414,6 +445,10 @@ class Purlieu {
         this.ctx.moveTo(first[0], first[1])
 
         const r: number[][] = [first]
+
+        if (result.index === state.editing) {
+          result.markers.push(first)
+        }
 
         for (let k = 0; k < rest.length - 2; k++) {
           const [x, y, a, b] = rest[k]

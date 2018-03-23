@@ -62,7 +62,7 @@ export default class Bazil extends React.Component<any, State> {
       const ctx = node.getContext('2d')
 
       if (ctx) {
-        let data = geojson
+        let data: any = []
 
         const toLngLat = ([x, y]: number[]): number[] => {
           const point = this.map.containerPointToLatLng([x, y])
@@ -97,6 +97,7 @@ export default class Bazil extends React.Component<any, State> {
         this.map.on('move zoom', () => app.init(data))
         window.basil = this
         window.app = app
+        window.load = i => app.init([geojson[i]])
       }
     }
   }
