@@ -1,8 +1,10 @@
+import bbox from '@turf/bbox'
 import rewind from '@turf/rewind'
 import { Map } from 'leaflet'
 import * as PropTypes from 'prop-types'
 import * as React from 'react'
 import basil from './basil'
+import DrawControl from './DrawControl'
 import leerbroek from './leerbroek.json'
 import purlieu from './redux/Purlieu'
 import fields from './sample.json'
@@ -12,6 +14,7 @@ interface State {
     width: number
     height: number
   }
+  topology: boolean
 }
 
 const geojson = [leerbroek].concat(
@@ -41,19 +44,45 @@ export default class Bazil extends React.Component<any, State> {
   constructor(props: any, context: Context) {
     super(props)
 
-    this.state = this.getStateFromMapSize(context)
+    this.state = {
+      ...this.getStateFromMapSize(context),
+      topology: true,
+    }
+
     this.onRef = this.onRef.bind(this)
     this.map = context.map
+
+    const [minx, miny, maxx, maxy] = bbox(geojson[1])
+
+    this.map.fitBounds([[miny, minx], [maxy, maxx]])
   }
 
   public render() {
     return (
-      <canvas
-        style={styles.container}
-        height={this.state.size.height}
-        width={this.state.size.width}
-        ref={this.onRef}
-      />
+      <>
+        <DrawControl
+          onAddPoly={() => undefined}
+          onAddCircle={() => undefined}
+          onCutLine={() => undefined}
+          onCutPoly={() => undefined}
+          onCutCircle={() => undefined}
+          onToggleSnapPoint={() => undefined}
+          onToggleSnapLine={() => undefined}
+          onToggleTopology={() => undefined}
+          onCancel={() => undefined}
+          onDone={() => undefined}
+          onUndo={() => undefined}
+          onRedo={() => undefined}
+          snap={{ lines: true, points: true }}
+          topology
+        />
+        <canvas
+          style={styles.container}
+          height={this.state.size.height}
+          width={this.state.size.width}
+          ref={this.onRef}
+        />
+      </>
     )
   }
 
@@ -98,6 +127,7 @@ export default class Bazil extends React.Component<any, State> {
         window.basil = this
         window.app = app
         window.load = i => app.init([geojson[i]])
+        window.load(1)
       }
     }
   }
