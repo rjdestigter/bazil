@@ -19,6 +19,9 @@ import reducer, { initialState } from './reducer'
 import { AnyGeoJSON, PolyLike, State } from './types'
 import { pointToLineDistance, projectGeoJSON } from './utils'
 
+// Canvas
+import draw from '../canvas/multiPolygon'
+
 const pointIsEqual = ([x1, y1]: number[], [x2, y2]: number[]): boolean =>
   _.isEqual([x1, y1], [x2, y2])
 
@@ -51,22 +54,26 @@ class Purlieu {
   private fromLngLat: (xy: number[]) => number[]
   private toLngLat: (xy: number[]) => number[]
   private nextData: AnyGeoJSON[] = []
+  private _draw: {
+    polygon: (result: Result) => (geom: Polygon) => Polygon
+    multiPolygon: (result: Result) => (geom: MultiPolygon) => MultiPolygon
+  }
 
   constructor({ canvas, fromLngLat, toLngLat, data = [] }: Config) {
     this.data = data.map(geom => rewind(geom))
     this.fromLngLat = fromLngLat
     this.toLngLat = toLngLat
 
-    this.store = createStore(
+    this.store = createStore<State>(
       reducer,
-      initialState,
-      applyMiddleware(createLogger())
+      initialState
+      // applyMiddleware(createLogger())
     )
 
     // this.store.dispatch(actions.init({ data: data || [] }))
     this.canvas = canvas
     this.ctx = canvas.getContext('2d') as CanvasRenderingContext2D
-
+    this._draw = draw()(this.ctx)(this.store)
     canvas.addEventListener('click', (e: MouseEvent) => {
       this.store.dispatch(actions.onClick(e2xy(e)))
     })
@@ -80,6 +87,7 @@ class Purlieu {
     this.init()
 
     const onMouseDown = (e: MouseEvent) => {
+      this.mouseDown = true
       const go = () => {
         const state = this.store.getState()
         canvas.removeEventListener('mouseup', onTimeout)
@@ -131,15 +139,28 @@ class Purlieu {
     window.foo = this
   }
 
-  public onToggleSnap() {
+  public onTogglePointSnap() {
     const settings = this.store.getState().settings
 
     this.store.dispatch(
       actions.updateSettings({
         ...settings,
         snap: {
-          lines: !settings.snap.lines,
+          ...settings.snap,
           points: !settings.snap.points,
+        },
+      })
+    )
+  }
+  public onToggleLineSnap() {
+    const settings = this.store.getState().settings
+
+    this.store.dispatch(
+      actions.updateSettings({
+        ...settings,
+        snap: {
+          ...settings.snap,
+          lines: !settings.snap.lines,
         },
       })
     )
@@ -290,9 +311,9 @@ class Purlieu {
           geometries: nextGeometries,
         }
       case 'MultiPolygon':
-        return this.multiPolygon(geom, result, options)
+        return this._draw.multiPolygon(result)(geom)
       case 'Polygon':
-        return this.polygon(geom, result, options)
+        return this._draw.polygon(result)(geom)
       case 'Feature':
         return {
           ...geom,
@@ -325,200 +346,200 @@ class Purlieu {
     this.ctx.stroke()
   }
 
-  private polygon(
-    geom: Polygon,
-    result: Result,
-    options: { fillStyle: string; strokeStyle: string }
-  ): Polygon {
-    const state = this.store.getState()
+  // private polygon(
+  //   geom: Polygon,
+  //   result: Result,
+  //   options: { fillStyle: string; strokeStyle: string }
+  // ): Polygon {
+  //   const state = this.store.getState()
 
-    this.ctx.beginPath()
+  //   this.ctx.beginPath()
 
-    const nexxCoordinates = geom.coordinates.map(lineString => {
-      const [first, ...rest] = lineString
-      let [prevX, prevY] = first
+  //   const nexxCoordinates = geom.coordinates.map(lineString => {
+  //     const [first, ...rest] = lineString
+  //     let [prevX, prevY] = first
 
-      const isDraggingFirst = state.dragging.find(point =>
-        pointIsEqual(point, [prevX, prevY])
-      )
+  //     const isDraggingFirst = state.dragging.find(point =>
+  //       pointIsEqual(point, [prevX, prevY])
+  //     )
 
-      const r: number[][] = []
-      if (isDraggingFirst) {
-        const [mx, my] = state.mousePosition
-        this.ctx.moveTo(mx, my)
-        r.push([mx, my])
+  //     const r: number[][] = []
+  //     if (isDraggingFirst) {
+  //       const [mx, my] = state.mousePosition
+  //       this.ctx.moveTo(mx, my)
+  //       r.push([mx, my])
 
-        if (result.index === state.editing) {
-          result.markers.push([mx, my])
-        }
-      } else {
-        this.ctx.moveTo(prevX, prevY)
-        r.push(first)
+  //       if (result.index === state.editing) {
+  //         result.markers.push([mx, my])
+  //       }
+  //     } else {
+  //       this.ctx.moveTo(prevX, prevY)
+  //       r.push(first)
 
-        if (result.index === state.editing) {
-          result.markers.push(first)
-        }
-      }
+  //       if (result.index === state.editing) {
+  //         result.markers.push(first)
+  //       }
+  //     }
 
-      for (let k = 0; k < rest.length - 2; k++) {
-        const [x, y, a, b] = rest[k]
+  //     for (let k = 0; k < rest.length - 2; k++) {
+  //       const [x, y, a, b] = rest[k]
 
-        if (
-          state.dragging.length &&
-          state.line &&
-          _.isEqual(state.line, [[prevX, prevY], [x, y]])
-        ) {
-          r.push(state.mousePosition)
-        }
+  //       if (
+  //         state.dragging.length &&
+  //         state.line &&
+  //         _.isEqual(state.line, [[prevX, prevY], [x, y]])
+  //       ) {
+  //         r.push(state.mousePosition)
+  //       }
 
-        if (
-          state.dragging.length &&
-          (state.settings.topology ||
-            (!result.draggedMarkerIsDrawn && state.editing === result.index))
-        ) {
-          const isDraggingPoint = state.dragging.find(point =>
-            pointIsEqual(point, [x, y])
-          )
+  //       if (
+  //         state.dragging.length &&
+  //         (state.settings.topology ||
+  //           (!result.draggedMarkerIsDrawn && state.editing === result.index))
+  //       ) {
+  //         const isDraggingPoint = state.dragging.find(point =>
+  //           pointIsEqual(point, [x, y])
+  //         )
 
-          if (isDraggingPoint) {
-            const mxy = state.mousePosition
-            // result.markers.push(mxy)
-            this.ctx.lineTo(mxy[0], mxy[1])
-            result.draggedMarkerIsDrawn = true
-            result.placeholderLines.push(
-              [rest[k - 1] || first, [x, y]],
-              [[x, y], rest[k + 1] || first]
-            )
+  //         if (isDraggingPoint) {
+  //           const mxy = state.mousePosition
+  //           // result.markers.push(mxy)
+  //           this.ctx.lineTo(mxy[0], mxy[1])
+  //           result.draggedMarkerIsDrawn = true
+  //           result.placeholderLines.push(
+  //             [rest[k - 1] || first, [x, y]],
+  //             [[x, y], rest[k + 1] || first]
+  //           )
 
-            r.push(mxy)
-          } else {
-            if (result.index === state.editing) {
-              result.markers.push([x, y])
-            }
-            this.ctx.lineTo(x, y)
-            r.push(rest[k])
-          }
-        } else {
-          if (result.index === state.editing) {
-            result.markers.push([x, y])
-          }
-          this.ctx.lineTo(x, y)
-          r.push(rest[k])
-        }
+  //           r.push(mxy)
+  //         } else {
+  //           if (result.index === state.editing) {
+  //             result.markers.push([x, y])
+  //           }
+  //           this.ctx.lineTo(x, y)
+  //           r.push(rest[k])
+  //         }
+  //       } else {
+  //         if (result.index === state.editing) {
+  //           result.markers.push([x, y])
+  //         }
+  //         this.ctx.lineTo(x, y)
+  //         r.push(rest[k])
+  //       }
 
-        prevX = x
-        prevY = y
-      }
+  //       prevX = x
+  //       prevY = y
+  //     }
 
-      this.ctx.closePath()
+  //     this.ctx.closePath()
 
-      r.push(rest[rest.length - 1])
-      r.push(first)
-      return r
-    })
+  //     r.push(rest[rest.length - 1])
+  //     r.push(first)
+  //     return r
+  //   })
 
-    this.ctx.fillStyle = options.fillStyle
-    this.ctx.strokeStyle = options.strokeStyle
-    this.ctx.fill()
-    // this.ctx.fill()
-    this.ctx.stroke()
+  //   this.ctx.fillStyle = options.fillStyle
+  //   this.ctx.strokeStyle = options.strokeStyle
+  //   this.ctx.fill()
+  //   // this.ctx.fill()
+  //   this.ctx.stroke()
 
-    return {
-      ...geom,
-      coordinates: nexxCoordinates,
-    }
-  }
+  //   return {
+  //     ...geom,
+  //     coordinates: nexxCoordinates,
+  //   }
+  // }
 
-  private multiPolygon(
-    geom: MultiPolygon,
-    result: Result,
-    options: { fillStyle: string; strokeStyle: string }
-  ): MultiPolygon {
-    const state = this.store.getState()
+  // private multiPolygon(
+  //   geom: MultiPolygon,
+  //   result: Result,
+  //   options: { fillStyle: string; strokeStyle: string }
+  // ): MultiPolygon {
+  //   const state = this.store.getState()
 
-    const nexxCoordinates = geom.coordinates.map(polygon => {
-      this.ctx.beginPath()
+  //   const nexxCoordinates = geom.coordinates.map(polygon => {
+  //     this.ctx.beginPath()
 
-      return polygon.map(lineString => {
-        const [first, ...rest] = lineString
-        let [prevX, prevY] = first
-        this.ctx.moveTo(first[0], first[1])
+  //     return polygon.map(lineString => {
+  //       const [first, ...rest] = lineString
+  //       let [prevX, prevY] = first
+  //       this.ctx.moveTo(first[0], first[1])
 
-        const r: number[][] = [first]
+  //       const r: number[][] = [first]
 
-        if (result.index === state.editing) {
-          result.markers.push(first)
-        }
+  //       if (result.index === state.editing) {
+  //         result.markers.push(first)
+  //       }
 
-        for (let k = 0; k < rest.length - 2; k++) {
-          const [x, y, a, b] = rest[k]
+  //       for (let k = 0; k < rest.length - 2; k++) {
+  //         const [x, y, a, b] = rest[k]
 
-          if (
-            state.dragging.length &&
-            state.line &&
-            _.isEqual(state.line, [[prevX, prevY], [x, y]])
-          ) {
-            r.push(state.mousePosition)
-          }
+  //         if (
+  //           state.dragging.length &&
+  //           state.line &&
+  //           _.isEqual(state.line, [[prevX, prevY], [x, y]])
+  //         ) {
+  //           r.push(state.mousePosition)
+  //         }
 
-          if (
-            state.dragging.length &&
-            (state.settings.topology ||
-              (!result.draggedMarkerIsDrawn && state.editing === result.index))
-          ) {
-            const isDraggingPoint = state.dragging.find(point =>
-              pointIsEqual(point, [x, y])
-            )
+  //         if (
+  //           state.dragging.length &&
+  //           (state.settings.topology ||
+  //             (!result.draggedMarkerIsDrawn && state.editing === result.index))
+  //         ) {
+  //           const isDraggingPoint = state.dragging.find(point =>
+  //             pointIsEqual(point, [x, y])
+  //           )
 
-            if (isDraggingPoint) {
-              const mxy = state.mousePosition
-              result.markers.push(mxy)
-              this.ctx.lineTo(mxy[0], mxy[1])
-              result.draggedMarkerIsDrawn = true
-              result.placeholderLines.push(
-                [rest[k - 1] || first, [x, y]],
-                [[x, y], rest[k + 1] || first]
-              )
+  //           if (isDraggingPoint) {
+  //             const mxy = state.mousePosition
+  //             result.markers.push(mxy)
+  //             this.ctx.lineTo(mxy[0], mxy[1])
+  //             result.draggedMarkerIsDrawn = true
+  //             result.placeholderLines.push(
+  //               [rest[k - 1] || first, [x, y]],
+  //               [[x, y], rest[k + 1] || first]
+  //             )
 
-              r.push(mxy)
-            } else {
-              if (result.index === state.editing) {
-                result.markers.push([x, y])
-              }
-              this.ctx.lineTo(x, y)
-              r.push(rest[k])
-            }
-          } else {
-            if (result.index === state.editing) {
-              result.markers.push([x, y])
-            }
-            this.ctx.lineTo(x, y)
-            r.push(rest[k])
-          }
+  //             r.push(mxy)
+  //           } else {
+  //             if (result.index === state.editing) {
+  //               result.markers.push([x, y])
+  //             }
+  //             this.ctx.lineTo(x, y)
+  //             r.push(rest[k])
+  //           }
+  //         } else {
+  //           if (result.index === state.editing) {
+  //             result.markers.push([x, y])
+  //           }
+  //           this.ctx.lineTo(x, y)
+  //           r.push(rest[k])
+  //         }
 
-          prevX = x
-          prevY = y
-        }
+  //         prevX = x
+  //         prevY = y
+  //       }
 
-        this.ctx.closePath()
+  //       this.ctx.closePath()
 
-        r.push(rest[rest.length - 1])
-        r.push(first)
-        return r
-      })
+  //       r.push(rest[rest.length - 1])
+  //       r.push(first)
+  //       return r
+  //     })
 
-      this.ctx.fillStyle = options.fillStyle
-      this.ctx.strokeStyle = options.strokeStyle
-      this.ctx.fill()
-      // this.ctx.fill()
-      this.ctx.stroke()
-    })
+  //     this.ctx.fillStyle = options.fillStyle
+  //     this.ctx.strokeStyle = options.strokeStyle
+  //     this.ctx.fill()
+  //     // this.ctx.fill()
+  //     this.ctx.stroke()
+  //   })
 
-    return {
-      ...geom,
-      coordinates: nexxCoordinates,
-    }
-  }
+  //   return {
+  //     ...geom,
+  //     coordinates: nexxCoordinates,
+  //   }
+  // }
 }
 
 export default (config: Config) => new Purlieu(config)

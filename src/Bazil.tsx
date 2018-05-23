@@ -1,4 +1,5 @@
 import bbox from '@turf/bbox'
+import bboxPolygon from '@turf/bbox-polygon'
 import rewind from '@turf/rewind'
 import { Map } from 'leaflet'
 import * as PropTypes from 'prop-types'
@@ -91,7 +92,7 @@ export default class Bazil extends React.Component<any, State> {
       const ctx = node.getContext('2d')
 
       if (ctx) {
-        let data: any = []
+        let data: any = [geojson[2]]
 
         const toLngLat = ([x, y]: number[]): number[] => {
           const point = this.map.containerPointToLatLng([x, y])
@@ -103,12 +104,15 @@ export default class Bazil extends React.Component<any, State> {
           return [point.x, point.y]
         }
 
+        // const foo = bbox(geojson[1])
         const app = purlieu({
           canvas: node,
           toLngLat,
           fromLngLat,
-          data,
+          data: [],
         })
+
+        app.init(data)
 
         app.onChange(next => {
           data = next
@@ -126,8 +130,8 @@ export default class Bazil extends React.Component<any, State> {
         this.map.on('move zoom', () => app.init(data))
         window.basil = this
         window.app = app
-        window.load = i => app.init([geojson[i]])
-        window.load(1)
+        window.load = i => app.init(data)
+        // window.load(0)
       }
     }
   }
