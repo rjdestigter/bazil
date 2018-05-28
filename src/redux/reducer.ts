@@ -32,6 +32,8 @@ const updateMousePosition = (state: State, action: Action<number[]>): State => {
   const geopoints = toFeatureCollection([toPoint([x, y])])
   let hoverIndex = state.editing
 
+  // If the user is not editing determine if the mouse position
+  // is hovering over a feature
   if (state.editing < 0) {
     state.data.find((geom, index) => {
       const result = pointsWithinPolygon(geopoints, geom)
@@ -44,9 +46,13 @@ const updateMousePosition = (state: State, action: Action<number[]>): State => {
     })
   }
 
-  const nearPoints = state.indices.points.within(x, y, 10)
+  const hoverTransitionIndex =
+    hoverIndex !== state.hoverIndex ? 0 : state.hoverTransitionIndex
+
+  let nearPoints: number[] | undefined = undefined
 
   if (state.settings.snap.points) {
+    nearPoints = state.indices.points.within(x, y, 10)
     if (nearPoints.length) {
       return {
         ...state,
@@ -55,6 +61,7 @@ const updateMousePosition = (state: State, action: Action<number[]>): State => {
         near: nearPoints.map(i => state.coordinates[i]),
         mousePosition: state.coordinates[nearPoints[0]],
         hoverIndex,
+        hoverTransitionIndex,
       }
     }
   }
@@ -70,10 +77,12 @@ const updateMousePosition = (state: State, action: Action<number[]>): State => {
         near: [],
         mousePosition: nearLine.point,
         hoverIndex,
+        hoverTransitionIndex,
       }
     }
   }
 
+  nearPoints = nearPoints || state.indices.points.within(x, y, 10)
   return {
     ...state,
     line: undefined,
@@ -81,6 +90,7 @@ const updateMousePosition = (state: State, action: Action<number[]>): State => {
     near: nearPoints.map(i => state.coordinates[i]),
     mousePosition: action.payload,
     hoverIndex,
+    hoverTransitionIndex,
   }
 }
 
@@ -88,6 +98,22 @@ const onClick = (state: State, action: Action<number[]>): State => {
   return {
     ...state,
     editing: (state.editing = state.hoverIndex),
+  }
+}
+
+const onFinish = (state: State, action: any): State => {
+  return {
+    ...state,
+    editing: -1,
+  }
+}
+
+const increaseHoverTransition = (state: State, action: any): State => {
+  const hoverTransitionIndex = state.hoverTransitionIndex + 0.2
+  return {
+    ...state,
+    hoverTransitionIndex:
+      hoverTransitionIndex >= 20 ? 20 : hoverTransitionIndex,
   }
 }
 
@@ -214,6 +240,7 @@ export const initialState: State = {
   lines: [],
   dragging: [],
   hoverIndex: -1,
+  hoverTransitionIndex: 20,
   editing: -1,
   settings: {
     snap: {
@@ -238,6 +265,10 @@ export default (state: State, action: any): State => {
       return updateSettings(state, action)
     case constants.CLICK:
       return onClick(state, action)
+    case constants.FINISH:
+      return onFinish(state, action)
+    case constants.INCREASE_HOVER_TRANSITION:
+      return increaseHoverTransition(state, action)
     default:
       return state || initialState
   }

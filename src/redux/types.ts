@@ -39,6 +39,7 @@ export interface State {
   drawing: number[][]
   dragging: number[][]
   hoverIndex: number
+  hoverTransitionIndex: number
   editing: number
   settings: {
     snap: {

@@ -42,6 +42,7 @@ interface Result {
   placeholderLines: number[][][]
   draggedMarkerIsDrawn: boolean
   index: number
+  insertAt: number[] | undefined
 }
 
 const e2xy = (e: MouseEvent) => [e.offsetX, e.offsetY]
@@ -54,6 +55,9 @@ class Purlieu {
   private fromLngLat: (xy: number[]) => number[]
   private toLngLat: (xy: number[]) => number[]
   private nextData: AnyGeoJSON[] = []
+  private mouseDown: boolean
+  private insertAt: number[] | undefined
+
   private _draw: {
     polygon: (result: Result) => (geom: Polygon) => Polygon
     multiPolygon: (result: Result) => (geom: MultiPolygon) => MultiPolygon
@@ -63,6 +67,7 @@ class Purlieu {
     this.data = data.map(geom => rewind(geom))
     this.fromLngLat = fromLngLat
     this.toLngLat = toLngLat
+    this.mouseDown = false
 
     this.store = createStore<State>(
       reducer,
@@ -74,9 +79,39 @@ class Purlieu {
     this.canvas = canvas
     this.ctx = canvas.getContext('2d') as CanvasRenderingContext2D
     this._draw = draw()(this.ctx)(this.store)
-    canvas.addEventListener('click', (e: MouseEvent) => {
-      this.store.dispatch(actions.onClick(e2xy(e)))
-    })
+
+    const onMouseDownMain = (e: MouseEvent) => {
+      const onMouseDownMainContinued = () => {
+        canvas.removeEventListener('mouseup', onMouseDownMainContinued)
+        canvas.removeEventListener('mousemove', onMove)
+
+        if (this.store.getState().hoverIndex >= 0) {
+          canvas.removeEventListener('mousedown', onMouseDownMain)
+          this.store.dispatch(actions.onClick(e2xy(e)))
+          canvas.addEventListener('mousedown', onMouseDown)
+          document.addEventListener('keypress', onCancel)
+        }
+      }
+
+      const onMove = () => {
+        canvas.removeEventListener('mouseup', onMouseDownMainContinued)
+        canvas.removeEventListener('mousemove', onMove)
+      }
+
+      canvas.addEventListener('mousemove', onMove)
+      canvas.addEventListener('mouseup', onMouseDownMainContinued)
+    }
+
+    const onCancel = (e: KeyboardEvent) => {
+      if (e.keyCode === 13) {
+        document.removeEventListener('keypress', onCancel)
+        this.store.dispatch(actions.onFinish(undefined))
+        canvas.addEventListener('mousedown', onMouseDownMain)
+        canvas.removeEventListener('mousedown', onMouseDown)
+      }
+    }
+
+    canvas.addEventListener('mousedown', onMouseDownMain)
 
     canvas.addEventListener('mousemove', (e: MouseEvent) => {
       this.store.dispatch(actions.updateMousePosition(e2xy(e)))
@@ -87,35 +122,72 @@ class Purlieu {
     this.init()
 
     const onMouseDown = (e: MouseEvent) => {
-      this.mouseDown = true
-      const go = () => {
-        const state = this.store.getState()
-        canvas.removeEventListener('mouseup', onTimeout)
-        canvas.addEventListener('mouseup', onMouseUp)
+      const state = this.store.getState()
 
-        if (state.near.length) {
-          this.store.dispatch(actions.toggleDrag(state.near))
+      // If the user potentiall will drag a marker
+      if (state.near.length) {
+        // Sets state in to dragging mode if near a marker
+        const onContinueWithMouseDown = () => {
+          canvas.removeEventListener('mouseup', onMouseUpToSoon)
+          canvas.removeEventListener('mousemove', onMove)
+          canvas.addEventListener('mouseup', onMouseUp)
+
+          if (state.near.length) {
+            this.store.dispatch(actions.toggleDrag(state.near))
+          } else {
+            this.insertAt = e2xy(e)
+          }
         }
+
+        // Start setting drag state in 100 ms
+        const continueIn100Ms = setTimeout(onContinueWithMouseDown, 100)
+
+        // Cancels setting drag state timeout
+        const onCancelContinue = () => clearTimeout(continueIn100Ms)
+
+        // On mousemove we know we want to drag so we
+        // - cancel the timeout
+        // - cancel the this mousemove listener
+        // - and continue with setting drag state
+        const onMove = () => {
+          canvas.removeEventListener('mousemove', onMove)
+          onCancelContinue()
+          onContinueWithMouseDown()
+        }
+
+        // If the user release the mouse click to soon we
+        // - cancel the timeout
+        // - cancel the listener for mousemove
+        const onMouseUpToSoon = () => {
+          onCancelContinue()
+          canvas.removeEventListener('mousemove', onMove)
+          this.insertAt = e2xy(e)
+        }
+
+        // Register event listener for mouseup and mousemove
+        canvas.addEventListener('mouseup', onMouseUpToSoon)
+        canvas.addEventListener('mousemove', onMove)
+      } else {
+        this.insertAt = e2xy(e)
+        this.store.dispatch({ type: 'NOOP' })
+        const collection: {
+          lines: number[][][]
+          coordinates: number[][]
+        } = { lines: [], coordinates: [] }
+
+        this.nextData.map(projectGeoJSON(a => a)(collection))
+
+        this.store.dispatch(
+          actions.updatePositions({
+            data: this.nextData,
+            ...collection,
+          })
+        )
       }
-      const timeout = setTimeout(go, 100)
-
-      const onTimeout = () => clearTimeout(timeout)
-
-      const onMove = () => {
-        canvas.removeEventListener('mousemove', onMove)
-        onTimeout()
-        go()
-      }
-
-      canvas.addEventListener('mouseup', () => {
-        onTimeout()
-        canvas.removeEventListener('mousemove', onMove)
-      })
-
-      canvas.addEventListener('mousemove', onMove)
     }
 
     const onMouseUp = (e: MouseEvent) => {
+      canvas.removeEventListener('mouseup', onMouseUp)
       if (this.store.getState().dragging) {
         const collection: {
           lines: number[][][]
@@ -134,9 +206,6 @@ class Purlieu {
 
       this.draw()
     }
-
-    canvas.addEventListener('mousedown', onMouseDown)
-    window.foo = this
   }
 
   public onTogglePointSnap() {
@@ -223,6 +292,14 @@ class Purlieu {
   private draw() {
     const state = this.store.getState()
 
+    if (state.editing >= 0) {
+      this.canvas.style.cursor = 'none'
+    } else if (state.hoverIndex >= 0) {
+      this.canvas.style.cursor = 'pointer'
+    } else {
+      this.canvas.style.cursor = 'inherit'
+    }
+
     this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height)
 
     const result: Result = {
@@ -230,35 +307,22 @@ class Purlieu {
       placeholderLines: [],
       draggedMarkerIsDrawn: false,
       index: -1,
+      insertAt: this.insertAt,
     }
 
     const items = state.indices.polygons.search(state.bbox)
-    console.info(`Drawing ${items.length} items.`)
+
     this.nextData = state.data.map((geom, index) => {
       const item = items.find(i => i.index === index)
 
       if (item) {
-        if (index === state.hoverIndex || index === state.editing) {
-          return this.drawGeom(
-            geom,
-            { ...result, index: item.index },
-            {
-              fillStyle: 'rgba(255, 255, 255, 0.5)',
-              strokeStyle: '#111111',
-            }
-          )
-        }
-
-        return this.drawGeom(geom, result, {
-          fillStyle: 'rgba(0, 0, 0, 0.2)',
-          strokeStyle: '#111111',
-        })
+        return this.drawGeom(geom, { ...result, index: item.index })
       }
 
       return geom
     })
 
-    if (state.line) {
+    if (state.editing >= 0 && state.line) {
       this.ctx.beginPath()
       this.ctx.moveTo(state.line[0][0], state.line[0][1])
       this.ctx.lineTo(state.line[1][0], state.line[1][1])
@@ -273,11 +337,21 @@ class Purlieu {
     this.ctx.strokeStyle = '#000000'
 
     if (state.editing >= 0) {
+      let drew: { [id: string]: undefined | boolean } = {}
       result.markers.map(([x, y]) => {
         this.ctx.beginPath()
         this.ctx.arc(x, y, 5, 0, 2 * Math.PI)
+
+        if (drew[`${x}:${y}`]) {
+          this.ctx.fillStyle = 'Red'
+        } else {
+          this.ctx.fillStyle = 'White'
+        }
+
         this.ctx.fill()
         this.ctx.stroke()
+
+        drew[`${x}:${y}`] = true
       })
 
       result.placeholderLines.map(line => {
@@ -293,17 +367,25 @@ class Purlieu {
     }
 
     this.drawMousePosition()
+
+    this.insertAt = undefined
+
+    if (state.hoverTransitionIndex < 20) {
+      requestAnimationFrame(() => {
+        this.store.dispatch(actions.increaseHoverTransition(undefined))
+      })
+    }
   }
 
   private drawGeom(
     geom: AnyGeoJSON,
-    result: Result,
-    options: { fillStyle: string; strokeStyle: string }
+    result: Result
+    // options: { fillStyle: string; strokeStyle: string }
   ): AnyGeoJSON {
     switch (geom.type) {
       case 'GeometryCollection':
         const nextGeometries: any = geom.geometries.map(g =>
-          this.drawGeom(g as PolyLike, result, options)
+          this.drawGeom(g as PolyLike, result)
         )
 
         return {
@@ -317,12 +399,12 @@ class Purlieu {
       case 'Feature':
         return {
           ...geom,
-          geometry: this.drawGeom(geom.geometry, result, options),
+          geometry: this.drawGeom(geom.geometry, result),
         }
       case 'FeatureCollection':
         return {
           ...geom,
-          features: geom.features.map(g => this.drawGeom(g, result, options)),
+          features: geom.features.map(g => this.drawGeom(g, result)),
         }
     }
 
@@ -331,215 +413,38 @@ class Purlieu {
 
   private drawMousePosition() {
     const state = this.store.getState()
-    const [x, y] = state.mousePosition
-    const near = state.indices.points.within(x, y, 10)
 
-    this.ctx.beginPath()
-    this.ctx.fillStyle =
-      state.snap === 'point'
-        ? 'Yellow'
-        : state.snap === 'line' ? 'Orange' : '#ffffff'
+    if (state.editing >= 0) {
+      const [x, y] = state.mousePosition
+      const [lng, lat] = this.toLngLat([x, y]).map(
+        n => Math.round(n * 1000000) / 1000000
+      )
+      const near = state.indices.points.within(x, y, 10)
 
-    this.ctx.strokeStyle = '#000000'
-    this.ctx.arc(x, y, state.snap ? 10 : 5, 0, 2 * Math.PI)
-    this.ctx.fill()
-    this.ctx.stroke()
+      this.ctx.beginPath()
+      this.ctx.arc(x, y, 2, 0, 2 * Math.PI)
+      // this.ctx.arc(x, y, state.snap ? 10 : 5, 0, 2 * Math.PI)
+
+      this.ctx.strokeStyle = 'transparent'
+      this.ctx.fillStyle = '#000000'
+      this.ctx.fill()
+      this.ctx.stroke()
+
+      this.ctx.beginPath()
+      this.ctx.arc(x, y, 25, 0, 2 * Math.PI)
+      this.ctx.strokeStyle = '#000000'
+      // this.ctx.lineWidth = 2
+      this.ctx.stroke()
+
+      this.ctx.font = '12px monospace, serif'
+      this.ctx.fillText(`${lng}, ${lat}`, x + 40, y - 40)
+      // this.ctx.lineWidth = 1
+      // this.ctx.fillStyle =
+      // state.snap === 'point'
+      //   ? 'Yellow'
+      //   : state.snap === 'line' ? 'Orange' : '#ffffff'
+    }
   }
-
-  // private polygon(
-  //   geom: Polygon,
-  //   result: Result,
-  //   options: { fillStyle: string; strokeStyle: string }
-  // ): Polygon {
-  //   const state = this.store.getState()
-
-  //   this.ctx.beginPath()
-
-  //   const nexxCoordinates = geom.coordinates.map(lineString => {
-  //     const [first, ...rest] = lineString
-  //     let [prevX, prevY] = first
-
-  //     const isDraggingFirst = state.dragging.find(point =>
-  //       pointIsEqual(point, [prevX, prevY])
-  //     )
-
-  //     const r: number[][] = []
-  //     if (isDraggingFirst) {
-  //       const [mx, my] = state.mousePosition
-  //       this.ctx.moveTo(mx, my)
-  //       r.push([mx, my])
-
-  //       if (result.index === state.editing) {
-  //         result.markers.push([mx, my])
-  //       }
-  //     } else {
-  //       this.ctx.moveTo(prevX, prevY)
-  //       r.push(first)
-
-  //       if (result.index === state.editing) {
-  //         result.markers.push(first)
-  //       }
-  //     }
-
-  //     for (let k = 0; k < rest.length - 2; k++) {
-  //       const [x, y, a, b] = rest[k]
-
-  //       if (
-  //         state.dragging.length &&
-  //         state.line &&
-  //         _.isEqual(state.line, [[prevX, prevY], [x, y]])
-  //       ) {
-  //         r.push(state.mousePosition)
-  //       }
-
-  //       if (
-  //         state.dragging.length &&
-  //         (state.settings.topology ||
-  //           (!result.draggedMarkerIsDrawn && state.editing === result.index))
-  //       ) {
-  //         const isDraggingPoint = state.dragging.find(point =>
-  //           pointIsEqual(point, [x, y])
-  //         )
-
-  //         if (isDraggingPoint) {
-  //           const mxy = state.mousePosition
-  //           // result.markers.push(mxy)
-  //           this.ctx.lineTo(mxy[0], mxy[1])
-  //           result.draggedMarkerIsDrawn = true
-  //           result.placeholderLines.push(
-  //             [rest[k - 1] || first, [x, y]],
-  //             [[x, y], rest[k + 1] || first]
-  //           )
-
-  //           r.push(mxy)
-  //         } else {
-  //           if (result.index === state.editing) {
-  //             result.markers.push([x, y])
-  //           }
-  //           this.ctx.lineTo(x, y)
-  //           r.push(rest[k])
-  //         }
-  //       } else {
-  //         if (result.index === state.editing) {
-  //           result.markers.push([x, y])
-  //         }
-  //         this.ctx.lineTo(x, y)
-  //         r.push(rest[k])
-  //       }
-
-  //       prevX = x
-  //       prevY = y
-  //     }
-
-  //     this.ctx.closePath()
-
-  //     r.push(rest[rest.length - 1])
-  //     r.push(first)
-  //     return r
-  //   })
-
-  //   this.ctx.fillStyle = options.fillStyle
-  //   this.ctx.strokeStyle = options.strokeStyle
-  //   this.ctx.fill()
-  //   // this.ctx.fill()
-  //   this.ctx.stroke()
-
-  //   return {
-  //     ...geom,
-  //     coordinates: nexxCoordinates,
-  //   }
-  // }
-
-  // private multiPolygon(
-  //   geom: MultiPolygon,
-  //   result: Result,
-  //   options: { fillStyle: string; strokeStyle: string }
-  // ): MultiPolygon {
-  //   const state = this.store.getState()
-
-  //   const nexxCoordinates = geom.coordinates.map(polygon => {
-  //     this.ctx.beginPath()
-
-  //     return polygon.map(lineString => {
-  //       const [first, ...rest] = lineString
-  //       let [prevX, prevY] = first
-  //       this.ctx.moveTo(first[0], first[1])
-
-  //       const r: number[][] = [first]
-
-  //       if (result.index === state.editing) {
-  //         result.markers.push(first)
-  //       }
-
-  //       for (let k = 0; k < rest.length - 2; k++) {
-  //         const [x, y, a, b] = rest[k]
-
-  //         if (
-  //           state.dragging.length &&
-  //           state.line &&
-  //           _.isEqual(state.line, [[prevX, prevY], [x, y]])
-  //         ) {
-  //           r.push(state.mousePosition)
-  //         }
-
-  //         if (
-  //           state.dragging.length &&
-  //           (state.settings.topology ||
-  //             (!result.draggedMarkerIsDrawn && state.editing === result.index))
-  //         ) {
-  //           const isDraggingPoint = state.dragging.find(point =>
-  //             pointIsEqual(point, [x, y])
-  //           )
-
-  //           if (isDraggingPoint) {
-  //             const mxy = state.mousePosition
-  //             result.markers.push(mxy)
-  //             this.ctx.lineTo(mxy[0], mxy[1])
-  //             result.draggedMarkerIsDrawn = true
-  //             result.placeholderLines.push(
-  //               [rest[k - 1] || first, [x, y]],
-  //               [[x, y], rest[k + 1] || first]
-  //             )
-
-  //             r.push(mxy)
-  //           } else {
-  //             if (result.index === state.editing) {
-  //               result.markers.push([x, y])
-  //             }
-  //             this.ctx.lineTo(x, y)
-  //             r.push(rest[k])
-  //           }
-  //         } else {
-  //           if (result.index === state.editing) {
-  //             result.markers.push([x, y])
-  //           }
-  //           this.ctx.lineTo(x, y)
-  //           r.push(rest[k])
-  //         }
-
-  //         prevX = x
-  //         prevY = y
-  //       }
-
-  //       this.ctx.closePath()
-
-  //       r.push(rest[rest.length - 1])
-  //       r.push(first)
-  //       return r
-  //     })
-
-  //     this.ctx.fillStyle = options.fillStyle
-  //     this.ctx.strokeStyle = options.strokeStyle
-  //     this.ctx.fill()
-  //     // this.ctx.fill()
-  //     this.ctx.stroke()
-  //   })
-
-  //   return {
-  //     ...geom,
-  //     coordinates: nexxCoordinates,
-  //   }
-  // }
 }
 
 export default (config: Config) => new Purlieu(config)

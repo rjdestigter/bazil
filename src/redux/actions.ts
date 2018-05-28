@@ -28,3 +28,7 @@ export const updateSettings = create<State['settings']>(
 )
 
 export const onClick = create<number[]>(constants.CLICK)
+export const onFinish = create<void>(constants.FINISH)
+export const increaseHoverTransition = create<void>(
+  constants.INCREASE_HOVER_TRANSITION
+)
