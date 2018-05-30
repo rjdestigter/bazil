@@ -69,6 +69,7 @@ export default (stroke: Stroke = strokePolygon) => (
     }
 
     return {
+      linearRing,
       polygon,
       multiPolygon,
     }
@@ -88,7 +89,7 @@ export const strokePolygon: Stroke = (
     (options.hoverTransitionIndex != null
       ? options.hoverTransitionIndex
       : 20) || 20
-  ctx.fillStyle = `rgba(226, 186, 38, ${
+  ctx.fillStyle = `rgba(0,77,64, ${
     hovering
       ? 0.8 - hoverTransitionIndex / 100
       : 0.6 + hoverTransitionIndex / 100

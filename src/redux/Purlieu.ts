@@ -4,6 +4,15 @@ import {
   MultiPolygon,
   Polygon,
   Position,
+  Point,
+  AllGeoJSON,
+  Feature,
+  FeatureCollection,
+  MultiLineString,
+  LineString,
+  MultiPoint,
+  Geometry,
+  featureCollection,
 } from '@turf/helpers'
 
 import rewind from '@turf/rewind'
@@ -16,7 +25,7 @@ import { AnyAction, applyMiddleware, createStore, Reducer, Store } from 'redux'
 import { createLogger } from 'redux-logger'
 import * as actions from './actions'
 import reducer, { initialState } from './reducer'
-import { AnyGeoJSON, PolyLike, State } from './types'
+import { PolyLike, State } from './types'
 import { pointToLineDistance, projectGeoJSON } from './utils'
 
 // Canvas
@@ -29,7 +38,7 @@ interface Config {
   canvas: HTMLCanvasElement
   fromLngLat: (lnglat: number[]) => number[]
   toLngLat: (xy: number[]) => number[]
-  data: AnyGeoJSON[]
+  data: AllGeoJSON[]
 }
 
 interface Project {
@@ -45,16 +54,18 @@ interface Result {
   insertAt: number[] | undefined
 }
 
+type Mappable = Geometries | GeometryCollection | Feature | FeatureCollection
+
 const e2xy = (e: MouseEvent) => [e.offsetX, e.offsetY]
 
 class Purlieu {
   public store: Store<State>
   private ctx: CanvasRenderingContext2D
   private canvas: HTMLCanvasElement
-  private data: AnyGeoJSON[]
+  private data: AllGeoJSON[]
   private fromLngLat: (xy: number[]) => number[]
   private toLngLat: (xy: number[]) => number[]
-  private nextData: AnyGeoJSON[] = []
+  private nextData: AllGeoJSON[] = []
   private mouseDown: boolean
   private insertAt: number[] | undefined
 
@@ -246,7 +257,28 @@ class Purlieu {
     )
   }
 
-  public onChange(cb: (data: AnyGeoJSON[]) => void) {
+  public onAddPolygon() {
+    const onAddPoint = (e: MouseEvent) => {
+      this.canvas.removeEventListener('click', onAddPoint)
+      const coordinates = e2xy(e)
+      this.store.dispatch(
+        actions.onEdit({
+          type: 'Feature',
+          geometry: {
+            type: 'Point',
+            coordinates,
+          },
+          properties: {
+            editing: true,
+          },
+        })
+      )
+    }
+
+    this.canvas.addEventListener('click', onAddPoint)
+  }
+
+  public onChange(cb: (data: AllGeoJSON[]) => void) {
     let current = this.store.getState()
     const project = ([x, y, a, b]: number[]) => {
       if (a && b) {
@@ -266,7 +298,7 @@ class Purlieu {
     })
   }
 
-  public init(data: AnyGeoJSON[] = this.data) {
+  public init(data: AllGeoJSON[] = this.data) {
     console.time('init')
     const project = (xy: number[]) => [...this.fromLngLat(xy), ...xy]
     const collection: {
@@ -377,30 +409,34 @@ class Purlieu {
     }
   }
 
-  private drawGeom(
-    geom: AnyGeoJSON,
-    result: Result
-    // options: { fillStyle: string; strokeStyle: string }
-  ): AnyGeoJSON {
+  private drawGeom(geom: AllGeoJSON, result: Result): AllGeoJSON {
     switch (geom.type) {
       case 'GeometryCollection':
-        const nextGeometries: any = geom.geometries.map(g =>
-          this.drawGeom(g as PolyLike, result)
+        const geometryCollection: GeometryCollection = geom as any
+        const nextGeometries = geometryCollection.geometries.map(g =>
+          this.drawGeom(g, result)
         )
 
-        return {
-          ...geom,
+        return Object.assign({}, geom, {
           geometries: nextGeometries,
-        }
+        })
       case 'MultiPolygon':
-        return this._draw.multiPolygon(result)(geom)
+        const multiPolygon: MultiPolygon = geom as any
+        return this._draw.multiPolygon(result)(multiPolygon)
       case 'Polygon':
-        return this._draw.polygon(result)(geom)
+        const polygon: Polygon = geom as any
+        return this._draw.polygon(result)(polygon)
       case 'Feature':
-        return {
-          ...geom,
-          geometry: this.drawGeom(geom.geometry, result),
+        const feature: Feature = geom as any
+        if (feature.geometry) {
+          const geometry = feature.geometry
+
+          return {
+            ...feature,
+            geometry: this.drawGeom(geometry, result),
+          }
         }
+        break
       case 'FeatureCollection':
         return {
           ...geom,

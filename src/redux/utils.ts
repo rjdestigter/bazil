@@ -8,6 +8,8 @@ import {
   MultiPolygon,
   Polygon,
   Position,
+  GeoJSONObject,
+  Types as GeoJSONTypes,
 } from '@turf/helpers'
 
 import { AnyGeoJSON, PolyLike } from './types'
@@ -165,4 +167,30 @@ export const findLineSnapPosition = (
   }
 
   return { point: position, distance: 0, line }
+}
+
+export function isFeature<T>(geom: GeoJSONObject): geom is Feature<any> {
+  return geom.type === 'Feature'
+}
+
+export const isGeom = (type: GeoJSONTypes) => {
+  function isGeomOfType<T>(geom: T): geom is T
+  function isGeomOfType<T>(geom: Feature<T>): geom is Feature<T>
+  function isGeomOfType(geom: GeoJSONObject) {
+    if (isFeature(geom)) {
+      return geom.geometry === type
+    }
+
+    return geom.type === type
+  }
+
+  return isGeomOfType
+}
+
+export const isPoint = isGeom('Point')
+export const isPolygon = isGeom('Polygon')
+export const isMultiPolygon = isGeom('MultiPolygon')
+
+export const isPolyLike = (geom: GeoJSONObject): geom is PolyLike => {
+  return isPolygon(geom) || isMultiPolygon(geom)
 }

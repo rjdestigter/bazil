@@ -8,17 +8,20 @@ import {
   GeometryCollection,
   MultiPolygon,
   Polygon,
+  Point,
+  AllGeoJSON,
+  LineString,
+  MultiLineString,
 } from '@turf/helpers'
 
-export type PolyLike = Polygon | MultiPolygon
-export type AnyGeoJSON =
-  | PolyLike
-  | Feature<PolyLike>
-  | FeatureCollection<PolyLike>
-  | GeometryCollection
+export type PolyLike =
+  | Polygon
+  | MultiPolygon
+  | Feature<Polygon>
+  | Feature<MultiPolygon>
 
 export interface Item extends rbush.BBox {
-  data: AnyGeoJSON
+  data: AllGeoJSON
   index: number
 }
 
@@ -28,8 +31,8 @@ export interface State {
   line: number[][] | undefined
   snap: 'point' | 'line' | undefined
   near: number[][]
-  data: AnyGeoJSON[]
-  meta: AnyGeoJSON[]
+  data: AllGeoJSON[]
+  meta: AllGeoJSON[]
   indices: {
     points: kdbush.KDBush<number[][]>
     polygons: rbush.RBush<Item>
