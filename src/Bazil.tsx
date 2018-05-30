@@ -94,7 +94,7 @@ export default class Bazil extends React.Component<any, State> {
       if (ctx) {
         // let data: any = [bboxPolygon(bbox(geojson[2]))]
         const sample = rewind(leerbroek)
-        let data: any = [rewind(geojson[4]), rewind(geojson[3])]
+        let data: any = [] //  [rewind(geojson[4]), rewind(geojson[3])]
 
         const toLngLat = ([x, y]: number[]): number[] => {
           const point = this.map.containerPointToLatLng([x, y])
@@ -149,8 +149,8 @@ export default class Bazil extends React.Component<any, State> {
         window.load = i => app.init(data)
         // window.load(0)
 
-        const [minx, miny, maxx, maxy] = bbox(data[0])
-        this.map.fitBounds([[miny, minx], [maxy, maxx]])
+        // const [minx, miny, maxx, maxy] = bbox(data[0])
+        // this.map.fitBounds([[miny, minx], [maxy, maxx]])
       }
     }
   }

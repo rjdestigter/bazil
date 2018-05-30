@@ -1,18 +1,19 @@
 import _ from 'lodash'
 
 import {
+  AllGeoJSON,
   Feature,
   FeatureCollection,
+  GeoJSONObject,
   Geometries,
   GeometryCollection,
   MultiPolygon,
   Polygon,
   Position,
-  GeoJSONObject,
   Types as GeoJSONTypes,
 } from '@turf/helpers'
 
-import { AnyGeoJSON, PolyLike } from './types'
+import { GeoJSON, PolyLike } from './types'
 
 type Project = (xy: number[]) => number[]
 
@@ -26,14 +27,23 @@ const defaultCollect = (): Collect => ({ coordinates: [], lines: [] })
 export const pointIsEqual = ([x1, y1]: number[], [x2, y2]: number[]): boolean =>
   _.isEqual([x1, y1], [x2, y2])
 
-export const projectGeoJSON = (project: Project) => (
+export const projectGeometry = (project: Project) => (
   collect: Collect = defaultCollect()
-) => (geom: AnyGeoJSON): AnyGeoJSON => {
+) => (geom: Geometries): Geometries => {
   switch (geom.type) {
     case 'MultiPolygon':
       return projectMultiPolygon(project)(collect)(geom)
     case 'Polygon':
       return projectPolygon(project)(collect)(geom)
+    default:
+      return geom
+  }
+}
+
+export const projectGeoJSON = (project: Project) => (
+  collect: Collect = defaultCollect()
+) => (geom: GeoJSON): GeoJSON => {
+  switch (geom.type) {
     case 'FeatureCollection':
       return projectFeatureCollection(project)(collect)(geom as any)
     case 'Feature':
@@ -41,20 +51,20 @@ export const projectGeoJSON = (project: Project) => (
     case 'GeometryCollection':
       return projectGeometryCollection(project)(collect)(geom)
     default:
-      return geom
+      return projectGeometry(project)(collect)(geom)
   }
 }
 
 export const projectFeature = (project: Project) => (
   collect: Collect = defaultCollect()
-) => (geom: any): Feature<PolyLike> => ({
+) => (geom: any): Feature<Geometries> => ({
   ...geom,
-  geometry: projectGeoJSON(project)(collect)(geom.geometry),
+  geometry: projectGeometry(project)(collect)(geom.geometry),
 })
 
 export const projectFeatureCollection = (project: Project) => (
   collect: Collect = defaultCollect()
-) => (geom: any): FeatureCollection<PolyLike> => ({
+) => (geom: any): FeatureCollection<Geometries> => ({
   ...geom,
   features: geom.features.map(projectFeature(project)(collect)),
 })
@@ -63,9 +73,7 @@ export const projectGeometryCollection = (project: Project) => (
   collect: Collect = defaultCollect()
 ) => (geom: any): GeometryCollection => ({
   ...geom,
-  geometries: geom.geometries.map(
-    projectGeoJSON(project)(collect)
-  ) as Geometries[],
+  geometries: geom.geometries.map(projectGeometry(project)(collect)),
 })
 
 export const projectMultiPolygon = (project: Project) => (
@@ -169,16 +177,16 @@ export const findLineSnapPosition = (
   return { point: position, distance: 0, line }
 }
 
-export function isFeature<T>(geom: GeoJSONObject): geom is Feature<any> {
+export function isFeature(geom: GeoJSON): geom is Feature<Geometries> {
   return geom.type === 'Feature'
 }
 
 export const isGeom = (type: GeoJSONTypes) => {
   function isGeomOfType<T>(geom: T): geom is T
   function isGeomOfType<T>(geom: Feature<T>): geom is Feature<T>
-  function isGeomOfType(geom: GeoJSONObject) {
+  function isGeomOfType(geom: GeoJSON) {
     if (isFeature(geom)) {
-      return geom.geometry === type
+      return geom.geometry && geom.geometry.type === type
     }
 
     return geom.type === type
@@ -191,6 +199,88 @@ export const isPoint = isGeom('Point')
 export const isPolygon = isGeom('Polygon')
 export const isMultiPolygon = isGeom('MultiPolygon')
 
-export const isPolyLike = (geom: GeoJSONObject): geom is PolyLike => {
+export const isPolyLike = (
+  geom: GeoJSON
+): geom is Polygon | MultiPolygon | Feature<Polygon | MultiPolygon> => {
   return isPolygon(geom) || isMultiPolygon(geom)
+}
+
+export const extractPoly = (
+  geoJSON: GeoJSON
+): Array<MultiPolygon | Polygon> => {
+  switch (geoJSON.type) {
+    case 'MultiPolygon':
+    case 'Polygon':
+      return [geoJSON]
+    case 'Feature':
+      return geoJSON.geometry ? extractPoly(geoJSON.geometry) : []
+    case 'FeatureCollection':
+      return _.flatten(geoJSON.features.map(extractPoly))
+    default:
+      return []
+  }
+}
+
+export const getNextGeometry = (
+  coordinates: number[],
+  current: Geometries
+): Geometries => {
+  switch (current.type) {
+    case 'Point':
+      return {
+        type: 'LineString',
+        coordinates: [current.coordinates, coordinates],
+      }
+    case 'LineString':
+      return {
+        type: 'Polygon',
+        coordinates: [
+          [...current.coordinates, coordinates, current.coordinates[0]],
+        ],
+      }
+    case 'Polygon':
+      const polygonCoordinates = [...current.coordinates[0]]
+      polygonCoordinates.splice(polygonCoordinates.length - 2, 0, coordinates)
+      return {
+        ...current,
+        coordinates: [polygonCoordinates],
+      }
+    default:
+      return current
+  }
+}
+export const getNextGeoJSON = (
+  coordinates: number[],
+  current: GeoJSON
+): GeoJSON => {
+  switch (current.type) {
+    case 'Feature':
+      return {
+        ...current,
+        geometry: current.geometry
+          ? getNextGeometry(coordinates, current.geometry)
+          : null,
+      }
+    case 'FeatureCollection':
+      return {
+        ...current,
+        features: current.features.map(feature => {
+          return {
+            ...feature,
+            geometry: feature.geometry
+              ? getNextGeometry(coordinates, feature.geometry)
+              : null,
+          }
+        }),
+      }
+    case 'GeometryCollection':
+      return {
+        ...current,
+        geometries: current.geometries.map(geometry =>
+          getNextGeometry(coordinates, geometry)
+        ),
+      }
+    default:
+      return getNextGeometry(coordinates, current)
+  }
 }

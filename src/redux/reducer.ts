@@ -1,32 +1,48 @@
+// GeoJSON Types
 import {
+  AllGeoJSON,
   Feature,
   FeatureCollection,
   featureCollection as toFeatureCollection,
   Geometries,
   GeometryCollection,
+  MultiPolygon,
   point as toPoint,
-  AllGeoJSON,
+  Polygon,
 } from '@turf/helpers'
 
-// Actions
-import * as actions from './actions'
+// Types
+import { Reducer } from 'redux'
+import { Item, PolyLike, State } from './types'
 
+// Turf Utilities
 import bbox from '@turf/bbox'
 import { coordAll } from '@turf/meta'
-
 import pointsWithinPolygon from '@turf/points-within-polygon'
 
+// Spatial Indexers
 import kdbush from 'kdbush'
-import _ from 'lodash'
 import rbush from 'rbush'
 
+// General Utilities
+import _ from 'lodash'
+import {
+  extractPoly,
+  findLineSnapPosition,
+  isFeature,
+  isPolyLike,
+} from './utils'
+
+// Action Types
 import * as constants from './constants'
 
-import { findLineSnapPosition, isPolyLike, isFeature } from './utils'
+// Action Creators
+import * as actions from './actions'
 
-import { Item, State } from './types'
+// Exports
 
-const updateMousePosition = (
+// Reducers
+export const updateMousePosition = (
   state: State,
   action: ReturnType<typeof actions.updateMousePosition>
 ): State => {
@@ -38,16 +54,14 @@ const updateMousePosition = (
   // is hovering over a feature
   if (state.editing < 0) {
     state.data.find((geom, index) => {
-      if (isPolyLike(geom)) {
-        const polyGeom = isFeature(geom) ? geom.geometry : geom
-
-        if (polyGeom) {
-          const result = pointsWithinPolygon(geopoints, polyGeom)
-          if (result.features.length) {
-            hoverIndex = index
-            return true
-          }
-        }
+      const polys = extractPoly(geom)
+      const result = _.some(
+        polys,
+        poly => !!pointsWithinPolygon(geopoints, poly).features.length
+      )
+      if (result) {
+        hoverIndex = index
+        return true
       }
 
       return false
@@ -57,7 +71,7 @@ const updateMousePosition = (
   const hoverTransitionIndex =
     hoverIndex !== state.hoverIndex ? 0 : state.hoverTransitionIndex
 
-  let nearPoints: number[] | undefined = undefined
+  let nearPoints: number[] | undefined
 
   if (state.settings.snap.points) {
     nearPoints = state.indices.points.within(x, y, 10)
@@ -102,7 +116,7 @@ const updateMousePosition = (
   }
 }
 
-const onClick = (
+export const onClick = (
   state: State,
   action: ReturnType<typeof actions.onClick>
 ): State => {
@@ -112,7 +126,7 @@ const onClick = (
   }
 }
 
-const onFinish = (
+export const onFinish = (
   state: State,
   action: ReturnType<typeof actions.onFinish>
 ): State => {
@@ -122,7 +136,7 @@ const onFinish = (
   }
 }
 
-const increaseHoverTransition = (
+export const increaseHoverTransition = (
   state: State,
   action: ReturnType<typeof actions.increaseHoverTransition>
 ): State => {
@@ -134,11 +148,14 @@ const increaseHoverTransition = (
   }
 }
 
-const init = (state: State, action: ReturnType<typeof actions.init>): State => {
+export const init = (
+  state: State,
+  action: ReturnType<typeof actions.init>
+): State => {
   const coordinates: number[][] = []
   const items: Item[] = []
 
-  const data: AllGeoJSON[] = action.payload.data.map((geom, index) => {
+  const data = action.payload.data.map((geom, index) => {
     const [minX, minY, maxX, maxY] = bbox(geom)
     const geojson = {
       ...geom,
@@ -172,7 +189,7 @@ const init = (state: State, action: ReturnType<typeof actions.init>): State => {
   }
 }
 
-const updatePositions = (
+export const updatePositions = (
   state: State,
   action: ReturnType<typeof actions.updatePositions>
 ): State => {
@@ -281,7 +298,10 @@ export const onUpdate = (
   }
 }
 
-export default (state: State, action: actions.Action): State => {
+export const reducer: Reducer<State, actions.Action> = (
+  state: State | undefined = initialState,
+  action: actions.Action
+): State => {
   switch (action.type) {
     case constants.INIT:
       return init(state || initialState, action)
@@ -307,3 +327,5 @@ export default (state: State, action: actions.Action): State => {
       return state || initialState
   }
 }
+
+export default reducer

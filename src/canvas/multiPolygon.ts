@@ -1,15 +1,15 @@
+import turfBooleanPointOnLine from '@turf/boolean-point-on-line'
 import {
-  MultiPolygon,
-  Polygon,
-  point as turfPoint,
   lineString as turfLineString,
+  MultiPolygon,
+  point as turfPoint,
+  Polygon,
 } from '@turf/helpers'
+import turfMidpoint from '@turf/midpoint'
 import * as _ from 'lodash'
 import { Store } from 'redux'
 import { State } from '../redux/types'
 import { pointIsEqual } from '../redux/utils'
-import turfMidpoint from '@turf/midpoint'
-import turfBooleanPointOnLine from '@turf/boolean-point-on-line'
 
 interface Result {
   markers: number[][]
@@ -210,7 +210,7 @@ export const drawLinearRingCoordinates = (ctx: CanvasRenderingContext2D) => (
 
     // If drawing the first coordinate of the linear ring
     // - use ctx.moveTo
-    if (k == 0) {
+    if (k === 0) {
       const next = drawCoordinate(ctx)(store)(result)(ctx.moveTo)(
         [x, y],
         [prevX, prevY],

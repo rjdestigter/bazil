@@ -1,7 +1,7 @@
+import { Feature, Point } from '@turf/helpers'
 import rbush from 'rbush'
 import * as constants from './constants'
-import { State } from './types'
-import { AllGeoJSON, Feature, Point } from '@turf/helpers'
+import { GeoJSON, State } from './types'
 
 const create = <P, T extends string>(type: T) => (payload: P) => ({
   type,
@@ -10,7 +10,7 @@ const create = <P, T extends string>(type: T) => (payload: P) => ({
 
 export const init = create<
   {
-    data: AllGeoJSON[]
+    data: GeoJSON[]
     lines: number[][][]
     coordinates: number[][]
     bbox: rbush.BBox
@@ -25,7 +25,7 @@ export const updateMousePosition = create<
 
 export const updatePositions = create<
   {
-    data: AllGeoJSON[]
+    data: GeoJSON[]
     lines: number[][][]
     coordinates: number[][]
   },
@@ -51,7 +51,7 @@ export const increaseHoverTransition = create<
 export const onEdit = create<Feature<Point>, typeof constants.EDIT>(
   constants.EDIT
 )
-export const onUpdate = create<AllGeoJSON[], typeof constants.UPDATE>(
+export const onUpdate = create<GeoJSON[], typeof constants.UPDATE>(
   constants.UPDATE
 )
 

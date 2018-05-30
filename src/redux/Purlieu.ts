@@ -1,36 +1,57 @@
+// GeoJSON Types
 import {
-  Geometries,
-  GeometryCollection,
-  MultiPolygon,
-  Polygon,
-  Position,
-  Point,
-  AllGeoJSON,
   Feature,
   FeatureCollection,
-  MultiLineString,
-  LineString,
-  MultiPoint,
-  Geometry,
   featureCollection,
+  Geometries,
+  Geometry,
+  GeometryCollection,
+  LineString,
+  MultiLineString,
+  MultiPoint,
+  MultiPolygon,
+  Point,
+  Polygon,
+  Position,
 } from '@turf/helpers'
 
+// Types
+import { GeoJSON, PolyLike, State } from './types'
+
+// Turf Utilities
+import { coordAll, geomEach } from '@turf/meta'
 import rewind from '@turf/rewind'
 
-import { coordAll, geomEach } from '@turf/meta'
-import * as kdbush from 'kdbush'
+// Spatial Indexes
+import kdbush from 'kdbush'
+
+// Leaflet
 import * as L from 'leaflet'
+
+// Genral Utilities
 import * as _ from 'lodash'
+import {
+  extractPoly,
+  getNextGeoJSON,
+  isFeature,
+  isMultiPolygon,
+  isPoint,
+  isPolygon,
+  isPolyLike,
+  pointToLineDistance,
+  projectGeoJSON,
+} from './utils'
+
+// Redux
 import { AnyAction, applyMiddleware, createStore, Reducer, Store } from 'redux'
 import { createLogger } from 'redux-logger'
 import * as actions from './actions'
 import reducer, { initialState } from './reducer'
-import { PolyLike, State } from './types'
-import { pointToLineDistance, projectGeoJSON } from './utils'
 
 // Canvas
 import draw from '../canvas/multiPolygon'
 
+// Local Utilities
 const pointIsEqual = ([x1, y1]: number[], [x2, y2]: number[]): boolean =>
   _.isEqual([x1, y1], [x2, y2])
 
@@ -38,7 +59,7 @@ interface Config {
   canvas: HTMLCanvasElement
   fromLngLat: (lnglat: number[]) => number[]
   toLngLat: (xy: number[]) => number[]
-  data: AllGeoJSON[]
+  data: GeoJSON[]
 }
 
 interface Project {
@@ -54,7 +75,11 @@ interface Result {
   insertAt: number[] | undefined
 }
 
-type Mappable = Geometries | GeometryCollection | Feature | FeatureCollection
+export type Mappable =
+  | Geometries
+  | GeometryCollection
+  | Feature<Geometries>
+  | FeatureCollection<Geometries>
 
 const e2xy = (e: MouseEvent) => [e.offsetX, e.offsetY]
 
@@ -62,14 +87,15 @@ class Purlieu {
   public store: Store<State>
   private ctx: CanvasRenderingContext2D
   private canvas: HTMLCanvasElement
-  private data: AllGeoJSON[]
+  private data: GeoJSON[]
   private fromLngLat: (xy: number[]) => number[]
   private toLngLat: (xy: number[]) => number[]
-  private nextData: AllGeoJSON[] = []
+  private nextData: GeoJSON[] = []
   private mouseDown: boolean
   private insertAt: number[] | undefined
 
-  private _draw: {
+  private pencil: {
+    linearRing: (result: Result) => (linearRing: number[][]) => number[][]
     polygon: (result: Result) => (geom: Polygon) => Polygon
     multiPolygon: (result: Result) => (geom: MultiPolygon) => MultiPolygon
   }
@@ -80,18 +106,26 @@ class Purlieu {
     this.toLngLat = toLngLat
     this.mouseDown = false
 
-    this.store = createStore<State>(
+    this.store = createStore(
       reducer,
-      initialState
-      // applyMiddleware(createLogger())
+      initialState,
+      applyMiddleware(
+        createLogger({
+          predicate: (getState, action) =>
+            action.type !== '@basil/UPDATE_MOUSE_POSITION',
+        })
+      )
     )
 
     // this.store.dispatch(actions.init({ data: data || [] }))
     this.canvas = canvas
     this.ctx = canvas.getContext('2d') as CanvasRenderingContext2D
-    this._draw = draw()(this.ctx)(this.store)
+    this.pencil = draw()(this.ctx)(this.store)
 
     const onMouseDownMain = (e: MouseEvent) => {
+      if (this.store.getState().editing >= 0) {
+        return
+      }
       const onMouseDownMainContinued = () => {
         canvas.removeEventListener('mouseup', onMouseDownMainContinued)
         canvas.removeEventListener('mousemove', onMove)
@@ -179,21 +213,19 @@ class Purlieu {
         canvas.addEventListener('mouseup', onMouseUpToSoon)
         canvas.addEventListener('mousemove', onMove)
       } else {
-        this.insertAt = e2xy(e)
-        this.store.dispatch({ type: 'NOOP' })
-        const collection: {
-          lines: number[][][]
-          coordinates: number[][]
-        } = { lines: [], coordinates: [] }
-
-        this.nextData.map(projectGeoJSON(a => a)(collection))
-
-        this.store.dispatch(
-          actions.updatePositions({
-            data: this.nextData,
-            ...collection,
-          })
-        )
+        // this.insertAt = e2xy(e)
+        // this.store.dispatch({ type: 'NOOP' })
+        // const collection: {
+        //   lines: number[][][]
+        //   coordinates: number[][]
+        // } = { lines: [], coordinates: [] }
+        // this.nextData.map(projectGeoJSON(a => a)(collection))
+        // this.store.dispatch(
+        //   actions.updatePositions({
+        //     data: this.nextData,
+        //     ...collection,
+        //   })
+        // )
       }
     }
 
@@ -259,8 +291,20 @@ class Purlieu {
 
   public onAddPolygon() {
     const onAddPoint = (e: MouseEvent) => {
+      // Remove listener
       this.canvas.removeEventListener('click', onAddPoint)
       const coordinates = e2xy(e)
+
+      const onContinueAddPoint = (e2: MouseEvent) => {
+        const nextCoordinates = e2xy(e2)
+        const data = this.store.getState().data
+        const current = data[data.length - 1]
+        const nextGeometry = getNextGeoJSON(nextCoordinates, current)
+        const nextData = [...data]
+        nextData.splice(nextData.length - 1, 1, nextGeometry)
+        this.store.dispatch(actions.onUpdate(nextData))
+      }
+
       this.store.dispatch(
         actions.onEdit({
           type: 'Feature',
@@ -273,12 +317,14 @@ class Purlieu {
           },
         })
       )
+
+      this.canvas.addEventListener('click', onContinueAddPoint)
     }
 
     this.canvas.addEventListener('click', onAddPoint)
   }
 
-  public onChange(cb: (data: AllGeoJSON[]) => void) {
+  public onChange(cb: (data: GeoJSON[]) => void) {
     let current = this.store.getState()
     const project = ([x, y, a, b]: number[]) => {
       if (a && b) {
@@ -298,7 +344,7 @@ class Purlieu {
     })
   }
 
-  public init(data: AllGeoJSON[] = this.data) {
+  public init(data: GeoJSON[] = this.data) {
     console.time('init')
     const project = (xy: number[]) => [...this.fromLngLat(xy), ...xy]
     const collection: {
@@ -347,8 +393,8 @@ class Purlieu {
     this.nextData = state.data.map((geom, index) => {
       const item = items.find(i => i.index === index)
 
-      if (item) {
-        return this.drawGeom(geom, { ...result, index: item.index })
+      if (item || !isPolyLike(geom)) {
+        return this.drawGeom(geom, { ...result, index })
       }
 
       return geom
@@ -369,7 +415,7 @@ class Purlieu {
     this.ctx.strokeStyle = '#000000'
 
     if (state.editing >= 0) {
-      let drew: { [id: string]: undefined | boolean } = {}
+      const drew: { [id: string]: undefined | boolean } = {}
       result.markers.map(([x, y]) => {
         this.ctx.beginPath()
         this.ctx.arc(x, y, 5, 0, 2 * Math.PI)
@@ -409,42 +455,62 @@ class Purlieu {
     }
   }
 
-  private drawGeom(geom: AllGeoJSON, result: Result): AllGeoJSON {
-    switch (geom.type) {
+  private drawGeom(geoJSON: Mappable, result: Result): Mappable {
+    switch (geoJSON.type) {
       case 'GeometryCollection':
-        const geometryCollection: GeometryCollection = geom as any
-        const nextGeometries = geometryCollection.geometries.map(g =>
-          this.drawGeom(g, result)
+        const geometries = geoJSON.geometries.map(geometry =>
+          this.drawGeometry(geometry, result)
         )
 
-        return Object.assign({}, geom, {
-          geometries: nextGeometries,
-        })
-      case 'MultiPolygon':
-        const multiPolygon: MultiPolygon = geom as any
-        return this._draw.multiPolygon(result)(multiPolygon)
-      case 'Polygon':
-        const polygon: Polygon = geom as any
-        return this._draw.polygon(result)(polygon)
-      case 'Feature':
-        const feature: Feature = geom as any
-        if (feature.geometry) {
-          const geometry = feature.geometry
-
-          return {
-            ...feature,
-            geometry: this.drawGeom(geometry, result),
-          }
+        return {
+          ...geoJSON,
+          geometries,
         }
-        break
+      case 'Feature':
+        return {
+          ...geoJSON,
+          geometry: geoJSON.geometry
+            ? this.drawGeometry(geoJSON.geometry, result)
+            : null,
+        }
       case 'FeatureCollection':
         return {
-          ...geom,
-          features: geom.features.map(g => this.drawGeom(g, result)),
+          ...geoJSON,
+          features: geoJSON.features.map(feature => {
+            return {
+              ...feature,
+              geometry: feature.geometry
+                ? this.drawGeometry(feature.geometry, result)
+                : null,
+            }
+          }),
         }
+      default:
+        return this.drawGeometry(geoJSON, result)
     }
+  }
 
-    return [] as any
+  private drawGeometry(geometry: Geometries, result: Result): Geometries {
+    switch (geometry.type) {
+      case 'MultiPolygon':
+        return this.pencil.multiPolygon(result)(geometry)
+      case 'Polygon':
+        return this.pencil.polygon(result)(geometry)
+      case 'Point':
+        result.markers.push(geometry.coordinates)
+        return geometry
+      case 'MultiPoint':
+        result.markers.push(...geometry.coordinates)
+        return geometry
+      case 'LineString':
+        const coordinates = this.pencil.linearRing(result)(geometry.coordinates)
+        return {
+          ...geometry,
+          coordinates,
+        }
+      default:
+        return geometry
+    }
   }
 
   private drawMousePosition() {
